@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="TALOS Core Backend API — Autonomous Repository Maintenance System",
-    version="1.0.0-phase1",
+    version="1.0.0-phase2",
     lifespan=lifespan
 )
 

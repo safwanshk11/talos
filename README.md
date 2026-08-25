@@ -1,6 +1,6 @@
 # TALOS — Autonomous Repository Maintenance System
 
-[![Phase 1 Complete](https://img.shields.io/badge/Phase%201-Foundation%20%26%20GitHub%20Integration-blue.svg)](#)
+[![Phase 2 Complete](https://img.shields.io/badge/Phase%202-Repository%20Intelligence%20%26%20Detection-blue.svg)](#)
 [![Stack](https://img.shields.io/badge/Tech%20Stack-FastAPI%20%7C%20React%20%7C%20PostgreSQL%20%7C%20Docker-brightgreen.svg)](#)
 
 TALOS is an autonomous repository maintenance system. It continuously monitors software repositories, detects routine maintenance problems, understands what needs to change, creates isolated fixes, verifies those fixes through real engineering checks, and delivers review-ready pull requests.
@@ -18,15 +18,15 @@ WATCH  ──►  DETECT  ──►  UNDERSTAND  ──►  PLAN  ──►  PAT
 
 ---
 
-## Phase 1 Deliverables
+## Current Status: Phase 2 Complete
 
-Phase 1 establishes the core platform foundation:
-1. **GitHub Connection Service**: Connect GitHub using Personal Access Tokens (PAT) or GitHub OAuth App flow.
-2. **Repository Metadata Sync**: Fetches and stores owner, repository name, default branch, primary language, visibility, clone URL, HTML URL, and latest commit info (SHA, message, author, date).
-3. **Database Relational Architecture**: PostgreSQL schema with models for `User`, `GitHubConnection`, `Repository`, and stubs for future entities (`MaintenanceIssue`, `MaintenanceJob`, `PatchAttempt`, `VerificationRun`, `ActionLog`, `PullRequest`).
-4. **Operations Dashboard**: Modern developer infrastructure interface built with React + TypeScript (Vercel/Linear/GitHub dark style).
-5. **Repository Detail Page**: Inspect repository status, commit history, sync metadata, toggle monitoring state, and view clearly labeled future phase modules.
-6. **Container Orchestration**: Production-conscious `docker-compose.yml` orchestrating `postgres`, `backend`, and `frontend`.
+Phase 2 establishes **Repository Intelligence & Detection**:
+1. **Isolated Repository Cloning & Parsing**: Clones GitHub repos into isolated temporary workspaces (`/tmp/talos_scan_<id>_...`) and parses `package.json`, `requirements.txt`, and lockfiles.
+2. **Deterministic Vulnerability Detection Engine**: Queries Open Source Vulnerabilities (OSV API `https://api.osv.dev`) for package advisories.
+3. **SHA-256 Issue Deduplication & Lifecycle**: Fingerprints issues to prevent duplicates across scans, updating `last_seen_at` and marking resolved issues as `RESOLVED`.
+4. **Source Code Import Usage Finder**: Scans project source files (`.ts`, `.js`, `.tsx`, `.jsx`, `.py`) to identify files directly importing vulnerable dependencies.
+5. **Automation Readiness Assessment**: Evaluates repository verification capability (Manifest, Lockfile, Build, Test, Lint, CI config) and assigns readiness level (`HIGH`, `MEDIUM`, `LOW`).
+6. **Action Ledger & Live Operations Dashboard**: Logs scan steps into `ActionLog` (`WATCH`, `DETECT`, `UNDERSTAND`, `PLAN`, `PATCH`, `VERIFY`, `DELIVER`, `ESCALATE`) and renders real findings, progress modals, and readiness signals in the UI.
 
 ---
 
