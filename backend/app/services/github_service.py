@@ -163,3 +163,100 @@ class GitHubService:
                 return {"sha": None, "message": None, "author": None, "date": None}
             except Exception:
                 return {"sha": None, "message": None, "author": None, "date": None}
+
+    # ------------------------------------------------------------------ Phase 5: delivery
+
+    @staticmethod
+    async def get_branch(token: str, owner: str, repo: str, branch: str) -> Optional[Dict[str, Any]]:
+        """Returns the branch object, or None if it does not exist on GitHub."""
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "TALOS-Bot",
+        }
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.get(
+                    f"{GITHUB_API_BASE}/repos/{owner}/{repo}/branches/{branch}", headers=headers, timeout=10.0
+                )
+                if resp.status_code == 404:
+                    return None
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=502, detail=f"GitHub branch lookup failed: {resp.text}")
+                return resp.json()
+            except httpx.RequestError as exc:
+                raise HTTPException(status_code=503, detail=f"Network error checking GitHub branch: {exc}")
+
+    @staticmethod
+    async def find_pull_request_by_head(token: str, owner: str, repo: str, head_branch: str) -> Optional[Dict[str, Any]]:
+        """Idempotency/recovery support: finds an already-existing PR (any state)
+        for this head branch so a retried delivery reuses it instead of opening a
+        duplicate."""
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "TALOS-Bot",
+        }
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.get(
+                    f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls",
+                    headers=headers,
+                    params={"head": f"{owner}:{head_branch}", "state": "all"},
+                    timeout=10.0,
+                )
+                if resp.status_code != 200:
+                    return None
+                results = resp.json()
+                return results[0] if results else None
+            except httpx.RequestError:
+                return None
+
+    @staticmethod
+    async def create_pull_request(
+        token: str, owner: str, repo: str, title: str, head: str, base: str, body: str
+    ) -> Dict[str, Any]:
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "TALOS-Bot",
+        }
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.post(
+                    f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls",
+                    headers=headers,
+                    json={"title": title, "head": head, "base": base, "body": body},
+                    timeout=15.0,
+                )
+                if resp.status_code == 403:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="TALOS cannot create this pull request because the current GitHub connection "
+                               "does not have sufficient write permissions.",
+                    )
+                if resp.status_code == 422:
+                    raise HTTPException(status_code=422, detail=f"GitHub rejected the pull request: {resp.text}")
+                if resp.status_code != 201:
+                    raise HTTPException(status_code=502, detail=f"GitHub pull request creation failed: {resp.text}")
+                return resp.json()
+            except httpx.RequestError as exc:
+                raise HTTPException(status_code=503, detail=f"Network error creating GitHub pull request: {exc}")
+
+    @staticmethod
+    async def get_pull_request(token: str, owner: str, repo: str, pr_number: int) -> Dict[str, Any]:
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "TALOS-Bot",
+        }
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.get(
+                    f"{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pr_number}", headers=headers, timeout=10.0
+                )
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=502, detail=f"GitHub pull request lookup failed: {resp.text}")
+                return resp.json()
+            except httpx.RequestError as exc:
+                raise HTTPException(status_code=503, detail=f"Network error reading GitHub pull request: {exc}")

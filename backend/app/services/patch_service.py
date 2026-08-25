@@ -234,6 +234,7 @@ class PatchService:
             attempt = PatchAttempt(
                 job_id=job.id,
                 branch_name=branch_name,
+                base_sha=base_sha,
                 commit_sha=commit_sha,
                 patch_diff=diff_text,
                 attempt_number=attempt_number,

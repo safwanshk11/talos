@@ -39,7 +39,7 @@ export const MetricsOverview: React.FC<MetricsOverviewProps> = ({ stats, loading
     {
       title: 'Awaiting Review',
       value: stats?.awaiting_review_count ?? 0,
-      sub: 'Phase 5 PR Delivery',
+      sub: 'Open TALOS Pull Requests',
       icon: GitPullRequest,
       color: 'text-purple-400',
       bgColor: 'bg-purple-500/10',

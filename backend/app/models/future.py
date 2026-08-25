@@ -51,7 +51,8 @@ class MaintenanceJob(Base):
     repository_id = Column(Integer, ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False)
     issue_id = Column(Integer, ForeignKey("maintenance_issues.id", ondelete="CASCADE"), nullable=True)
     # queued, analyzing, planning, planned, sandboxing, patching, patch_ready,
-    # verifying, verified, verification_failed, failed, escalated
+    # verifying, verified, verification_failed, delivering, delivered,
+    # delivery_failed, failed, escalated
     status = Column(String, default="queued")
     risk_level = Column(String, nullable=True) # low, medium, high
     risk_reason = Column(Text, nullable=True)
@@ -64,6 +65,7 @@ class MaintenanceJob(Base):
     patch_attempts = relationship("PatchAttempt", back_populates="job", cascade="all, delete-orphan")
     action_logs = relationship("ActionLog", back_populates="job", cascade="all, delete-orphan")
     verification_runs = relationship("VerificationRun", back_populates="job", cascade="all, delete-orphan")
+    pull_requests = relationship("PullRequest", back_populates="job", cascade="all, delete-orphan")
 
 
 class PatchAttempt(Base):
@@ -72,6 +74,7 @@ class PatchAttempt(Base):
     id = Column(Integer, primary_key=True, index=True)
     job_id = Column(Integer, ForeignKey("maintenance_jobs.id", ondelete="CASCADE"), nullable=False)
     branch_name = Column(String, nullable=False)
+    base_sha = Column(String, nullable=True)  # HEAD of default branch the workspace was cloned from, before the TALOS branch/commit — needed to recompute the verified diff at delivery time
     commit_sha = Column(String, nullable=True)
     patch_diff = Column(Text, nullable=True)
     attempt_number = Column(Integer, default=1)
@@ -169,14 +172,45 @@ class ActionLog(Base):
 
 
 class PullRequest(Base):
+    """Phase 5: one row per maintenance job's delivery attempt. `status` tracks
+    TALOS's own delivery pipeline (never merges anything); `github_status`
+    mirrors GitHub's real open/merged/closed state, refreshed on demand."""
+
     __tablename__ = "pull_requests"
 
     id = Column(Integer, primary_key=True, index=True)
     repository_id = Column(Integer, ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False)
-    pr_number = Column(Integer, nullable=False)
-    pr_url = Column(String, nullable=False)
-    branch_name = Column(String, nullable=False)
-    title = Column(String, nullable=False)
-    status = Column(String, default="open") # open, merged, closed
+    maintenance_job_id = Column(Integer, ForeignKey("maintenance_jobs.id", ondelete="CASCADE"), nullable=False)
+    patch_attempt_id = Column(Integer, ForeignKey("patch_attempts.id", ondelete="CASCADE"), nullable=True)
+    verification_run_id = Column(Integer, ForeignKey("verification_runs.id", ondelete="CASCADE"), nullable=True)
+
+    base_branch = Column(String, nullable=True)
+    head_branch = Column(String, nullable=True)
+    # Superseded by head_branch; kept unused (nullable) rather than dropped so the
+    # ADD COLUMN/DROP NOT NULL migration below stays valid on both fresh and
+    # pre-Phase-5 databases — the same non-destructive-migration approach used
+    # elsewhere in this file.
+    branch_name = Column(String, nullable=True)
+    commit_sha = Column(String, nullable=True)
+    title = Column(String, nullable=True)
+
+    pr_number = Column(Integer, nullable=True)
+    pr_url = Column(String, nullable=True)
+
+    # pending, committing, pushing, creating_pr, delivered, delivery_failed, escalated
+    status = Column(String, default="pending")
+    # open, merged, closed — only meaningful once status == delivered
+    github_status = Column(String, nullable=True)
+    failure_reason = Column(Text, nullable=True)
+
+    # SHA-256 of the diff PatchAttempt.patch_diff represents (what Phase 4 actually
+    # verified) vs. of the diff freshly recomputed from the workspace immediately
+    # before push. Delivery is blocked unless these match.
+    verification_artifact_hash = Column(String, nullable=True)
+    delivery_artifact_hash = Column(String, nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    repository = relationship("Repository", back_populates="pull_requests")
+    job = relationship("MaintenanceJob", back_populates="pull_requests")

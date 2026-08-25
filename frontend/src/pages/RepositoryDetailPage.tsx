@@ -5,11 +5,13 @@ import {
   RepositoryReadiness,
   MaintenanceIssue,
   ActionLog,
+  PullRequest,
 } from '../types';
 import { ReadinessCard } from '../components/ReadinessCard';
 import { ScanProgressModal } from '../components/ScanProgressModal';
 import { IssueDetailModal } from '../components/IssueDetailModal';
 import { RemoveRepositoryModal } from '../components/RemoveRepositoryModal';
+import { PullRequestCard } from '../components/PullRequestCard';
 import {
   ArrowLeft,
   GitBranch,
@@ -29,6 +31,7 @@ import {
   Loader2,
   Trash2,
   PauseCircle,
+  GitPullRequest,
 } from 'lucide-react';
 
 interface RepositoryDetailPageProps {
@@ -44,6 +47,7 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
   const [readiness, setReadiness] = useState<RepositoryReadiness | null>(null);
   const [issues, setIssues] = useState<MaintenanceIssue[]>([]);
   const [logs, setLogs] = useState<ActionLog[]>([]);
+  const [pullRequests, setPullRequests] = useState<PullRequest[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,16 +70,18 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const [repoData, readinessData, issuesData, logsData] = await Promise.all([
+      const [repoData, readinessData, issuesData, logsData, pullRequestsData] = await Promise.all([
         api.getRepositoryDetail(repoId),
         api.getReadiness(repoId),
         api.getIssues(repoId),
         api.getLogs(repoId),
+        api.getRepositoryPullRequests(repoId),
       ]);
       setRepo(repoData);
       setReadiness(readinessData);
       setIssues(issuesData);
       setLogs(logsData);
+      setPullRequests(pullRequestsData);
     } catch (err: any) {
       setError(err.message || 'Failed to load repository detail.');
     } finally {
@@ -440,6 +446,23 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
           </div>
         )}
       </div>
+
+      {/* Phase 5: TALOS-delivered Pull Requests — compact operational history */}
+      {pullRequests.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 border-b border-subtle pb-3">
+            <GitPullRequest className="w-4 h-4 text-purple-400" />
+            <h2 className="text-base font-semibold text-slate-200 font-mono">
+              TALOS PULL REQUESTS ({pullRequests.length})
+            </h2>
+          </div>
+          <div className="space-y-2">
+            {pullRequests.map((pr) => (
+              <PullRequestCard key={pr.id} pr={pr} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Repository Settings / Danger Zone */}
       <div className="rounded-xl border border-red-500/20 bg-red-500/[0.03] overflow-hidden">

@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import tempfile
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
 WORKSPACE_ROOT = os.environ.get("TALOS_WORKSPACE_ROOT") or os.path.join(tempfile.gettempdir(), "talos_workspaces")
@@ -25,6 +26,21 @@ class GitWorkspaceService:
         return path
 
     @staticmethod
+    def _strip_credentials(url: str) -> str:
+        """Returns `url` with any embedded userinfo (e.g. x-access-token:TOKEN@)
+        removed. Used immediately after cloning so the token used to authenticate
+        a private-repo clone never sits at rest in the workspace's .git/config —
+        that config lives inside the shared `talos_workspaces` volume, which
+        Phase 4's verification sandbox mounts read-write."""
+        parts = urlsplit(url)
+        if not parts.username and not parts.password:
+            return url
+        netloc = parts.hostname or ""
+        if parts.port:
+            netloc += f":{parts.port}"
+        return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+    @staticmethod
     def clone_repository(clone_url: str, branch: str, dest: str, timeout: int = 90) -> None:
         cmd = ["git", "clone", "--depth", "1", "--branch", branch, clone_url, dest]
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
@@ -34,6 +50,10 @@ class GitWorkspaceService:
             proc_alt = subprocess.run(cmd_alt, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
             if proc_alt.returncode != 0:
                 raise GitWorkspaceError(f"git clone failed: {proc_alt.stderr or proc.stderr}")
+
+        sanitized = GitWorkspaceService._strip_credentials(clone_url)
+        if sanitized != clone_url:
+            subprocess.run(["git", "remote", "set-url", "origin", sanitized], cwd=dest, check=True, capture_output=True)
 
     @staticmethod
     def configure_identity(workspace: str) -> None:
@@ -70,6 +90,35 @@ class GitWorkspaceService:
         if proc.returncode != 0:
             raise GitWorkspaceError(f"diff generation failed: {proc.stderr}")
         return proc.stdout
+
+    @staticmethod
+    def get_current_branch(workspace: str) -> str:
+        proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=workspace, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise GitWorkspaceError(f"failed to read current branch: {proc.stderr}")
+        return proc.stdout.strip()
+
+    @staticmethod
+    def push_branch(workspace: str, authed_url: str, branch: str, token: str = "", timeout: int = 60) -> None:
+        """Pushes HEAD to `branch` on the remote at `authed_url`. The credentialed
+        URL is passed directly to this one `git push` invocation and is never
+        written to .git/config, so the workspace's `origin` remote (visible inside
+        the verification sandbox) stays credential-free before and after this call.
+
+        Force-push is safe and intentional here: TALOS exclusively owns branches
+        under its own `talos/fix-*` prefix (never main/default), and idempotent
+        retries of a partially-failed delivery must be able to re-push the same
+        verified commit without failing on a stale remote ref.
+        """
+        proc = subprocess.run(
+            ["git", "push", "--force", authed_url, f"HEAD:refs/heads/{branch}"],
+            cwd=workspace, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout,
+        )
+        if proc.returncode != 0:
+            stderr = proc.stderr or ""
+            if token:
+                stderr = stderr.replace(token, "***TOKEN***")
+            raise GitWorkspaceError(f"git push failed: {stderr}")
 
     @staticmethod
     def cleanup(workspace: str) -> None:

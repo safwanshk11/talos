@@ -10,6 +10,7 @@ import {
   ActionLog,
   MaintenanceJob,
   VerificationRun,
+  PullRequest,
 } from '../types';
 
 const API_BASE = '/api/v1';
@@ -106,4 +107,14 @@ export const api = {
     request<VerificationRun>(`/repositories/${repoId}/jobs/${jobId}/verify`, { method: 'POST' }),
   getVerificationRuns: (repoId: number, jobId: number) =>
     request<VerificationRun[]>(`/repositories/${repoId}/jobs/${jobId}/verification-runs`),
+
+  // Phase 5: GitHub Delivery & Pull Requests
+  deliverPatch: (repoId: number, jobId: number) =>
+    request<PullRequest>(`/repositories/${repoId}/jobs/${jobId}/deliver`, { method: 'POST' }),
+  getJobPullRequest: (repoId: number, jobId: number) =>
+    request<PullRequest | null>(`/repositories/${repoId}/jobs/${jobId}/pull-request`),
+  getRepositoryPullRequests: (repoId: number) =>
+    request<PullRequest[]>(`/repositories/${repoId}/pull-requests`),
+  refreshPullRequestStatus: (repoId: number, prId: number) =>
+    request<PullRequest>(`/repositories/${repoId}/pull-requests/${prId}/refresh-status`, { method: 'POST' }),
 };

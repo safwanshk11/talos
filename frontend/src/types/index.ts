@@ -170,6 +170,9 @@ export type MaintenanceJobStatus =
   | 'verifying'
   | 'verified'
   | 'verification_failed'
+  | 'delivering'
+  | 'delivered'
+  | 'delivery_failed'
   | 'failed'
   | 'escalated';
 
@@ -225,6 +228,30 @@ export interface VerificationRun {
   started_at?: string;
   completed_at?: string;
   checks: VerificationCheck[];
+}
+
+// Phase 5 Entities
+
+export type PullRequestStatus = 'pending' | 'committing' | 'pushing' | 'creating_pr' | 'delivered' | 'delivery_failed' | 'escalated';
+export type GithubPrStatus = 'open' | 'merged' | 'closed';
+
+export interface PullRequest {
+  id: number;
+  repository_id: number;
+  maintenance_job_id: number;
+  patch_attempt_id?: number;
+  verification_run_id?: number;
+  base_branch?: string;
+  head_branch?: string;
+  commit_sha?: string;
+  title?: string;
+  pr_number?: number;
+  pr_url?: string;
+  status: PullRequestStatus;
+  github_status?: GithubPrStatus;
+  failure_reason?: string;
+  created_at: string;
+  updated_at?: string;
 }
 
 export interface RepositoryReadiness {

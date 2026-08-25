@@ -1,6 +1,6 @@
 # TALOS — Autonomous Repository Maintenance System
 
-[![Phase 4 Complete](https://img.shields.io/badge/Phase%204-Verification%20Engine-blue.svg)](#)
+[![Phase 5 Complete](https://img.shields.io/badge/Phase%205-GitHub%20Delivery-blue.svg)](#)
 [![Stack](https://img.shields.io/badge/Tech%20Stack-FastAPI%20%7C%20React%20%7C%20PostgreSQL%20%7C%20Docker-brightgreen.svg)](#)
 
 TALOS is an autonomous repository maintenance system. It continuously monitors software repositories, detects routine maintenance problems, understands what needs to change, creates isolated fixes, verifies those fixes through real engineering checks, and delivers review-ready pull requests.
@@ -20,20 +20,21 @@ WATCH  ──►  DETECT  ──►  UNDERSTAND  ──►  PLAN  ──►  PAT
 
 ---
 
-## Current Status: Phase 4 Complete
+## Current Status: Phase 5 Complete
 
-Phase 4 is TALOS's core differentiator: **AI-generated code is untrusted until verified with real engineering checks.** A `PATCH_READY` patch from Phase 3 is never assumed to work — it's proven, or rejected, by deterministic evidence.
+Phase 5 closes the loop: **the exact patch that passed Phase 4 verification is delivered as a real, review-ready GitHub pull request — never regenerated, never auto-merged.**
 
-1. **Real Docker Sandbox Isolation**: Verification runs in disposable `--rm` containers launched via docker-outside-of-docker (the backend talks to the *host's* Docker engine through a mounted socket). No TALOS secret (`GITHUB_PERSONAL_ACCESS_TOKEN`, `GEMINI_API_KEY`, `DATABASE_URL`, `SECRET_KEY`) is ever forwarded into the sandbox — `docker run` is never passed `-e`/`--env-file`. The sandbox runs on Docker's default bridge network, isolated from the compose network TALOS's own services use, with memory/CPU/pids/timeout limits.
-2. **Repository-Specific Verification Plan**: `VerificationPlanBuilder` reads the patched workspace's actual `package.json` scripts — never invents a command that doesn't exist. Pipeline: `INSTALL → BUILD → TYPECHECK → LINT → TEST → SECURITY_AUDIT → VULNERABILITY_RESCAN`, with fail-fast on any required check that doesn't apply.
-3. **The Original Vulnerability Is Re-Checked, Not Assumed Fixed**: after the sandbox checks run, TALOS reads the resolved dependency version out of the patched lockfile and re-queries the OSV API for the *original* advisory ID. A patch is only `VERIFIED` if that advisory is confirmed gone — passing build/tests alone is not enough.
-4. **Evidence Over Confidence**: every check is stored and shown as real `PASSED` / `FAILED` / `SKIPPED` / `TIMED_OUT` with exit code, duration, and output excerpts — never an AI confidence score, and never a fabricated count (`84/84 tests`) unless a framework genuinely reported one. A failed *optional* check (e.g. an unrelated transitive-dependency security audit) is shown as failed, not hidden, even when it doesn't block the overall verdict.
-5. **Full Verification History**: `VerificationRun` / `VerificationCheck` records are preserved per attempt, never overwritten — `VERIFIED` and `VERIFICATION_FAILED` are both permanent, inspectable evidence trails.
+1. **Hard Delivery Gate, Enforced Server-Side**: a maintenance job must be genuinely `VERIFIED` — a real ready `PatchAttempt` plus a `VerificationRun` with `status="verified"` — checked inside `DeliveryService` itself, not just hidden behind a UI button. Calling the deliver endpoint directly against a `PATCH_READY` or `VERIFICATION_FAILED` job is rejected with `400 DELIVERY BLOCKED` every time.
+2. **The Exact Verified Artifact, Never a New One**: no AI call anywhere in delivery. TALOS pushes the *same* local commit Phase 3 created and Phase 4 verified — never re-committed — and recomputes a SHA-256 of the live workspace diff immediately before push, comparing it against a hash of the diff Phase 4 actually verified. Any mismatch blocks delivery outright.
+3. **Real Push, Real Pull Request**: pushes the TALOS branch (credentials passed only as a one-off `git push` argument, never written to disk) and opens an actual GitHub PR — `head` is the TALOS branch, `base` is the repository's default branch. TALOS never merges anything.
+4. **Evidence-Based PR Descriptions**: the PR body is built entirely from stored data — the real `MaintenanceIssue`, the real `MaintenancePlan`, and a verification table sourced directly from `VerificationCheck` rows (`PASSED`/`FAILED`/`SKIPPED` with real reasons) — the same evidence-integrity rule Phase 4 established, never fabricated precision.
+5. **Idempotent & Resumable**: one `PullRequest` row per job — a duplicate delivery request returns the existing PR instead of opening a second one, and a delivery that fails partway (e.g. push succeeds, PR creation fails) resumes on retry rather than restarting from scratch.
 
-Earlier phases remain fully active and are what Phase 4 builds on — see **[PHASES.md](PHASES.md)** for the complete build history, architecture notes, and known limitations of every phase:
+Earlier phases remain fully active and are what Phase 5 builds on — see **[PHASES.md](PHASES.md)** for the complete build history, architecture notes, and known limitations of every phase:
 - **Phase 1** — GitHub integration, repository connection & dashboard
 - **Phase 2** — repository scanning, OSV vulnerability detection, automation readiness
 - **Phase 3** — AI-driven planning & patch generation (Ollama / Gemini), isolated branches, real diffs
+- **Phase 4** — sandboxed verification engine, original-vulnerability re-scan, evidence-over-confidence reporting
 
 ---
 
@@ -45,6 +46,7 @@ Earlier phases remain fully active and are what Phase 4 builds on — see **[PHA
 * **Database**: PostgreSQL 16
 * **Infrastructure**: Docker & Docker Compose (Node.js/npm included in the backend image for deterministic dependency upgrades)
 * **Verification Sandbox**: docker-outside-of-Docker — the backend launches isolated, ephemeral containers on the host's own Docker engine to run Phase 4 checks; it never executes untrusted repository code in-process
+* **Delivery**: real GitHub pushes + pull requests via the GitHub REST API — no automatic merge, ever
 
 ---
 
@@ -56,7 +58,7 @@ talos/
 │   ├── src/
 │   │   ├── components/   # Sidebar, Header, MetricsOverview, RepositoryCard, ConnectGithubModal,
 │   │   │                 # IssueDetailModal (fix pipeline), DiffViewer, VerificationReport,
-│   │   │                 # RemoveRepositoryModal
+│   │   │                 # RemoveRepositoryModal, PullRequestCard
 │   │   ├── pages/        # DashboardPage, RepositoryDetailPage, ActivityPage, SettingsPage
 │   │   ├── services/     # Typed API Client
 │   │   ├── types/        # TypeScript Interfaces
@@ -77,6 +79,7 @@ talos/
 │   │       ├── dependency_updater_service.py  # Deterministic npm/pip upgrades
 │   │       ├── patch_safety.py           # Path traversal / size / count enforcement
 │   │       ├── verification/             # Phase 4: sandbox execution, plan builder, orchestrator
+│   │       ├── delivery_service.py       # Phase 5: commit reuse, artifact integrity, push, PR creation
 │   │       ├── scanner_service.py        # Phase 2 scan pipeline
 │   │       └── github_service.py         # GitHub REST API client
 │   └── Dockerfile
@@ -179,3 +182,4 @@ To test the complete flow:
 7. Click **Scan Repository** to run the Phase 2 pipeline — dependencies, OSV vulnerability findings, and readiness score populate for real.
 8. Open a detected issue and click **Prepare Fix** to run the Phase 3 pipeline — TALOS gathers context, analyzes the issue, generates a risk-classified plan, creates an isolated branch, applies a deterministic dependency upgrade, and shows the real generated diff. The repository's primary branch is never touched.
 9. Once the patch is `PATCH_READY`, click **Run Verification** to run the Phase 4 pipeline — TALOS installs dependencies, builds, lints, tests, runs a security audit, and re-queries OSV to confirm the original advisory is actually gone, all inside an isolated sandbox container with no TALOS secrets. The report shows every check's real PASS/FAIL/SKIPPED — the patch is marked `VERIFIED` only if it earns it.
+10. Once the patch is `VERIFIED`, click **Create Pull Request** to run the Phase 5 pipeline — TALOS confirms the workspace still matches exactly what was verified, pushes the TALOS branch to GitHub, and opens a real pull request with an evidence-based description. The pipeline tracker shows `DELIVERING` complete and a **View on GitHub** link to the real, open PR. TALOS never merges it — that's on you.

@@ -8,7 +8,7 @@ from fastapi import HTTPException, status
 from app.models.repository import Repository
 from app.models.github import GitHubConnection
 from app.models.user import User
-from app.models.future import MaintenanceIssue, MaintenanceJob
+from app.models.future import MaintenanceIssue, MaintenanceJob, PullRequest
 from app.services.github_service import GitHubService
 
 
@@ -206,12 +206,27 @@ class RepositoryService:
         verified_res = await db.execute(stmt_verified)
         verified_patches = verified_res.scalar() or 0
 
+        # Real count of TALOS-delivered pull requests still open on GitHub (i.e.
+        # genuinely awaiting human review) across the user's actively-connected repos.
+        stmt_awaiting = (
+            select(func.count(PullRequest.id))
+            .join(Repository, PullRequest.repository_id == Repository.id)
+            .where(
+                Repository.user_id == user_id,
+                Repository.connection_status != "disconnected",
+                PullRequest.status == "delivered",
+                PullRequest.github_status == "open",
+            )
+        )
+        awaiting_res = await db.execute(stmt_awaiting)
+        awaiting_review = awaiting_res.scalar() or 0
+
         return {
             "total_repositories": total,
             "active_monitoring_count": active,
             "active_issues_count": open_issues,
             "verified_patches_count": verified_patches,
-            "awaiting_review_count": 0,  # Phase 5: PR Delivery — not yet implemented
+            "awaiting_review_count": awaiting_review,
         }
 
     @staticmethod

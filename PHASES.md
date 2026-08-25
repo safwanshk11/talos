@@ -128,9 +128,42 @@ Standing rule for this project, in force from Phase 4 onward:
 
 ---
 
-## Phase 5 — GitHub PR Delivery 🔜 Planned
+## Phase 5 — GitHub Delivery & Pull Requests ✅ Complete
 
-Push the TALOS branch, open a pull request with an evidence-based description (real check results per the integrity rule above), track PR status. No automatic merge.
+**Goal:** Take the exact patch that passed Phase 4 verification and deliver it as a real, review-ready GitHub pull request — never regenerated, never auto-merged.
+
+**Delivered:**
+- **Hard delivery gate enforced server-side**: a job must be `verified` (or resuming from `delivering`/`delivery_failed`) with a real ready `PatchAttempt` and a `VerificationRun` whose `status == "verified"` — checked in `DeliveryService.deliver()` itself, not just hidden behind a frontend button. A direct API call against a `patch_ready` or `verification_failed` job is rejected with `400 DELIVERY BLOCKED` every time.
+- **Deliver the exact verified artifact, never a new one**: no `AIProvider` call anywhere in the delivery path. The commit that gets pushed is the *same* local commit Phase 3 already created and Phase 4 already verified (`PatchAttempt.commit_sha`) — Phase 5 never re-commits.
+- **Artifact integrity check**: immediately before push, TALOS recomputes the workspace's live `git diff` against the stored `base_sha` and SHA-256s it, then compares that hash to a SHA-256 of the diff Phase 4 actually verified (`PatchAttempt.patch_diff`). A mismatch — e.g. the workspace's git history was altered after verification — blocks delivery with `Patch changed after verification. Re-verification required.` rather than silently continuing.
+- **Branch safety**: verifies the workspace's current branch is exactly the expected `talos/fix-<issue>-<slug>` branch (never `main`/`master`/the repo's default branch) before pushing.
+- **Real push + real PR**: pushes the TALOS branch via a credential-in-URL `git push` (never written to `.git/config`) and opens an actual GitHub PR (`head` = TALOS branch, `base` = repository default branch) via the GitHub REST API.
+- **Evidence-based PR body**, generated from real stored data only: problem (from the `MaintenanceIssue`), changes (from the stored `MaintenancePlan.actions`), a verification table built directly from `VerificationCheck` rows (`PASSED`/`FAILED`/`SKIPPED` — SKIPPED always includes its real reason, never reworded as PASS), risk level, and files-changed count. No fabricated test counts — same [Verification Evidence Integrity Rule](#verification-evidence-integrity-rule) Phase 4 established.
+- **Idempotency + partial-delivery recovery**: one `PullRequest` row per `MaintenanceJob`. A second delivery request for an already-delivered job returns the existing PR instead of creating a duplicate (checked *before* the status gate, since a successful delivery moves the job off `verified`). A delivery that fails partway (e.g. push succeeds, PR creation fails) leaves the job in `delivery_failed`; retrying resumes — it does not re-commit, and re-push is a safe force-push of TALOS's own already-pushed branch — and checks GitHub for an existing PR on that head branch before creating a new one.
+- **State machine**: `verified → delivering → delivery_failed | delivered`, mirrored on both `MaintenanceJob.status` and `MaintenanceIssue.status` (`DELIVERED`), with a real `PullRequest.status` (`pending/committing/pushing/creating_pr/delivered/delivery_failed`) and a separate `PullRequest.github_status` (`open/merged/closed`, refreshable on demand) tracking GitHub's own state.
+- **Action Ledger** entries at every real step (`DELIVER` / `ESCALATE` on failure) — no simulated frontend timers.
+- **TALOS never merges anything** — no merge/auto-merge/approve code path exists anywhere in this phase.
+- Dashboard's "Awaiting Review" metric is now real: count of `PullRequest` rows with `status="delivered"` and `github_status="open"`.
+- New "TALOS Pull Requests" section on the Repository Detail page — compact history of every delivered PR with its live OPEN/MERGED/CLOSED badge, linking out to GitHub.
+
+**Key files:** `backend/app/services/delivery_service.py` (new), `backend/app/services/github_service.py` (added `get_branch`/`find_pull_request_by_head`/`create_pull_request`/`get_pull_request`), `backend/app/services/git_workspace_service.py` (added `push_branch`/`get_current_branch`/credential stripping), `backend/app/models/future.py` (`PullRequest` model completed, `PatchAttempt.base_sha` added), `backend/app/schemas/delivery.py` (new), `frontend/src/components/{IssueDetailModal,PullRequestCard}.tsx`, `frontend/src/pages/RepositoryDetailPage.tsx`.
+
+**Verified against the real demo repository** (`safwanshk11/talos-demo-vulnerable-app`), through the actual API — not a mock:
+- Delivered job #14 (the axios patch verified in Phase 4): produced real PR [`#1`](https://github.com/safwanshk11/talos-demo-vulnerable-app/pull/1) — `head=talos/fix-3-axios`, `base=main`, commit `b72d12e...` confirmed byte-identical to the commit Phase 4 verified (no new commit created). PR body's verification table showed `SECURITY_AUDIT: FAILED` truthfully (an unrelated optional check) alongside `Original Vulnerability: REMOVED` — not smoothed over.
+- **Idempotency**: called deliver on the same job twice — second call returned the identical PR #1, no duplicate created.
+- **Negative test**: called deliver directly against a `patch_ready` job and a `verification_failed` job — both rejected with `400 DELIVERY BLOCKED` by the backend itself.
+- **UI**: rebuilt containers, confirmed via Playwright — pipeline tracker shows all six steps including `DELIVERING` as complete, "Delivered." banner with a working "View on GitHub" link, footer copy updated, Repository Detail page's "TALOS Pull Requests" section shows PR #1 with a live `OPEN` badge, dashboard "Awaiting Review" reads `1`. Zero console errors.
+
+**Bugs found and fixed while building this phase:**
+- **Credential leak into the Phase 4 sandbox**: `git clone` (Phase 3) embeds the GitHub token directly in the cloned workspace's `.git/config` (`https://x-access-token:TOKEN@github.com/...`), and Phase 4's `SandboxService` mounts the *entire* `talos_workspaces` volume — including every workspace's `.git/config` — read-write into every verification container. This directly violated Phase 4's own "no secret ever reaches the sandbox" guarantee. Confirmed live: an already-existing workspace on disk had the real PAT sitting in its `origin` remote URL. Fixed by stripping credentials from the origin remote immediately after clone (`GitWorkspaceService._strip_credentials`) and by making the Phase 5 `push_branch` pass the credentialed URL directly as a one-off `git push` argument, never persisting it to `.git/config`. Existing at-risk workspaces were sanitized in place.
+- The original `PullRequest` model (declared in Phase 1 as a placeholder, never used) had `pr_number`/`pr_url`/`branch_name`/`title` as `NOT NULL`, which doesn't fit a resumable multi-step delivery pipeline where those fields are unknown until later steps succeed — widened non-destructively (`ALTER COLUMN ... DROP NOT NULL`) rather than dropping and recreating the table.
+
+**Known limitations:**
+- `SandboxService` still mounts the whole shared `talos_workspaces` volume (not just the current job's subdirectory) into each verification container — sibling workspaces' *source code* remains visible to a running sandbox, even though the credential leak specifically is now closed. A per-job volume or Docker's `volume-subpath` mount (Engine 25+) would close this fully; deferred as a larger infra change outside this phase's scope.
+- `refresh-status` (real GitHub OPEN/MERGED/CLOSED sync) is on-demand only — no background poller, per the spec's explicit "don't delay core PR creation for this" guidance.
+- No idempotency at the database level (e.g. a unique constraint on `maintenance_job_id`) — duplicate-prevention is enforced in `DeliveryService`, consistent with how this codebase already handles similar invariants (e.g. `PatchAttempt.attempt_number`) rather than introducing new DB-level constraints.
+
+---
 
 ## Phase 6 — Autonomous Operations Dashboard 🔜 Planned
 

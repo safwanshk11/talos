@@ -6,7 +6,7 @@ from sqlalchemy import desc
 
 from app.db.session import get_db
 from app.models.user import User
-from app.models.future import MaintenanceIssue, ActionLog, MaintenanceJob, VerificationRun
+from app.models.future import MaintenanceIssue, ActionLog, MaintenanceJob, VerificationRun, PullRequest
 from app.models.scan import RepositoryScan
 from app.models.readiness import RepositoryReadiness
 from app.api.deps import get_current_user
@@ -26,11 +26,13 @@ from app.schemas.scan import (
 )
 from app.schemas.patch import MaintenanceJobResponse
 from app.schemas.verification import VerificationRunResponse
+from app.schemas.delivery import PullRequestResponse
 from app.services.repository_service import RepositoryService
 from app.services.github_service import GitHubService
 from app.services.scanner_service import ScannerService
 from app.services.patch_service import PatchService
 from app.services.verification.verification_service import VerificationService
+from app.services.delivery_service import DeliveryService
 
 router = APIRouter()
 
@@ -372,3 +374,72 @@ async def get_verification_run(
     if not run:
         raise HTTPException(status_code=404, detail="Verification run not found.")
     return await VerificationService.to_response_dict(db, run)
+
+
+# ==========================================
+# PHASE 5: GITHUB DELIVERY & PULL REQUESTS
+# ==========================================
+
+@router.post("/{repository_id}/jobs/{job_id}/deliver", response_model=PullRequestResponse)
+async def deliver_job(
+    repository_id: int,
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Deliver a VERIFIED patch as a real GitHub pull request: reuse the exact
+    commit that passed Phase 4 verification (never regenerated), push it on its
+    TALOS branch, and open a PR against the repository's default branch. TALOS
+    never merges — a human always reviews. Safe to call repeatedly: an already
+    delivered job returns its existing pull request instead of creating a
+    duplicate, and a partially-failed delivery resumes rather than restarting."""
+    token = await RepositoryService.get_user_github_token(db, current_user.id)
+    pr = await DeliveryService.deliver(db, current_user.id, repository_id, job_id, token)
+    return DeliveryService.to_response_dict(pr)
+
+
+@router.get("/{repository_id}/jobs/{job_id}/pull-request", response_model=Optional[PullRequestResponse])
+async def get_job_pull_request(
+    repository_id: int,
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = (
+        select(PullRequest)
+        .where(PullRequest.maintenance_job_id == job_id, PullRequest.repository_id == repository_id)
+        .order_by(desc(PullRequest.created_at))
+    )
+    res = await db.execute(stmt)
+    pr = res.scalars().first()
+    return DeliveryService.to_response_dict(pr) if pr else None
+
+
+@router.get("/{repository_id}/pull-requests", response_model=List[PullRequestResponse])
+async def list_repository_pull_requests(
+    repository_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Compact operational history of every PR TALOS has opened for this repository."""
+    stmt = (
+        select(PullRequest)
+        .where(PullRequest.repository_id == repository_id, PullRequest.status == "delivered")
+        .order_by(desc(PullRequest.created_at))
+    )
+    res = await db.execute(stmt)
+    prs = res.scalars().all()
+    return [DeliveryService.to_response_dict(pr) for pr in prs]
+
+
+@router.post("/{repository_id}/pull-requests/{pr_id}/refresh-status", response_model=PullRequestResponse)
+async def refresh_pull_request_status(
+    repository_id: int,
+    pr_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Secondary/best-effort: pull real OPEN/MERGED/CLOSED state from GitHub."""
+    token = await RepositoryService.get_user_github_token(db, current_user.id)
+    pr = await DeliveryService.refresh_status(db, current_user.id, repository_id, pr_id, token)
+    return DeliveryService.to_response_dict(pr)

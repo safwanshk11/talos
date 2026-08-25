@@ -100,6 +100,35 @@ async def lifespan(app: FastAPI):
             await conn.execute(text(
                 f"ALTER TABLE verification_runs ADD COLUMN IF NOT EXISTS {column} {coltype}"
             ))
+
+        # Phase 5: GitHub Delivery & Pull Requests.
+        await conn.execute(text(
+            "ALTER TABLE patch_attempts ADD COLUMN IF NOT EXISTS base_sha VARCHAR"
+        ))
+        # pull_requests predates Phase 5's real columns (only had the earlier
+        # placeholder shape: repository_id, pr_number, pr_url, branch_name, title,
+        # status, created_at — all required). Widen the old required columns and
+        # add the new ones non-destructively rather than dropping the table.
+        for column in ("branch_name", "pr_number", "pr_url", "title"):
+            await conn.execute(text(
+                f"ALTER TABLE pull_requests ALTER COLUMN {column} DROP NOT NULL"
+            ))
+        for column, coltype in [
+            ("maintenance_job_id", "INTEGER"),
+            ("patch_attempt_id", "INTEGER"),
+            ("verification_run_id", "INTEGER"),
+            ("base_branch", "VARCHAR"),
+            ("head_branch", "VARCHAR"),
+            ("commit_sha", "VARCHAR"),
+            ("github_status", "VARCHAR"),
+            ("failure_reason", "TEXT"),
+            ("verification_artifact_hash", "VARCHAR"),
+            ("delivery_artifact_hash", "VARCHAR"),
+            ("updated_at", "TIMESTAMP WITH TIME ZONE"),
+        ]:
+            await conn.execute(text(
+                f"ALTER TABLE pull_requests ADD COLUMN IF NOT EXISTS {column} {coltype}"
+            ))
     logger.info("Database initialization complete.")
     yield
     # Shutdown
@@ -109,7 +138,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="TALOS Core Backend API — Autonomous Repository Maintenance System",
-    version="1.0.0-phase4",
+    version="1.0.0-phase5",
     lifespan=lifespan
 )
 
