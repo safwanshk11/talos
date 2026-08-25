@@ -6,7 +6,7 @@ from sqlalchemy import desc
 
 from app.db.session import get_db
 from app.models.user import User
-from app.models.future import MaintenanceIssue, ActionLog
+from app.models.future import MaintenanceIssue, ActionLog, MaintenanceJob
 from app.models.scan import RepositoryScan
 from app.models.readiness import RepositoryReadiness
 from app.api.deps import get_current_user
@@ -24,9 +24,11 @@ from app.schemas.scan import (
     RepositoryReadinessResponse,
     ActionLogResponse
 )
+from app.schemas.patch import MaintenanceJobResponse
 from app.services.repository_service import RepositoryService
 from app.services.github_service import GitHubService
 from app.services.scanner_service import ScannerService
+from app.services.patch_service import PatchService
 
 router = APIRouter()
 
@@ -241,3 +243,60 @@ async def get_repository_logs(
     stmt = select(ActionLog).where(ActionLog.repository_id == repository_id).order_by(desc(ActionLog.timestamp)).limit(limit)
     res = await db.execute(stmt)
     return res.scalars().all()
+
+
+# ==========================================
+# PHASE 3: PLANNING & PATCH GENERATION
+# ==========================================
+
+@router.post("/{repository_id}/issues/{issue_id}/prepare-fix", response_model=MaintenanceJobResponse)
+async def prepare_fix(
+    repository_id: int,
+    issue_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Run the real Phase 3 workflow for one maintenance issue: gather context,
+    analyze, plan, assess risk, create an isolated workspace + TALOS branch, and
+    generate a patch. Never touches the repository's primary branch and never
+    pushes or opens a pull request."""
+    token = await RepositoryService.get_user_github_token(db, current_user.id)
+    try:
+        job = await PatchService.prepare_fix(db, current_user.id, repository_id, issue_id, token)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Prepare fix failed: {exc}")
+    return await PatchService.to_response_dict(db, job)
+
+
+@router.get("/{repository_id}/issues/{issue_id}/jobs", response_model=List[MaintenanceJobResponse])
+async def list_issue_jobs(
+    repository_id: int,
+    issue_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = (
+        select(MaintenanceJob)
+        .where(MaintenanceJob.repository_id == repository_id, MaintenanceJob.issue_id == issue_id)
+        .order_by(desc(MaintenanceJob.created_at))
+    )
+    res = await db.execute(stmt)
+    jobs = res.scalars().all()
+    return [await PatchService.to_response_dict(db, job) for job in jobs]
+
+
+@router.get("/{repository_id}/jobs/{job_id}", response_model=MaintenanceJobResponse)
+async def get_job_detail(
+    repository_id: int,
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(MaintenanceJob).where(MaintenanceJob.id == job_id, MaintenanceJob.repository_id == repository_id)
+    res = await db.execute(stmt)
+    job = res.scalars().first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Maintenance job not found.")
+    return await PatchService.to_response_dict(db, job)

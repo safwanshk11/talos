@@ -411,7 +411,9 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
       {/* Issue Detail Panel/Modal */}
       <IssueDetailModal
         issue={selectedIssue}
+        repoId={repoId}
         onClose={() => setSelectedIssue(null)}
+        onJobUpdated={fetchRepoData}
       />
     </div>
   );

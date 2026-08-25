@@ -27,6 +27,18 @@ class Settings(BaseSettings):
 
     BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000"]
 
+    # AI Provider (Phase 3: Planning & Patch Generation)
+    # "ollama" for local/dev reasoning, "gemini" for deployment.
+    AI_PROVIDER: str = "ollama"
+    AI_MODEL: str = "qwen2.5:7b"
+    AI_TIMEOUT_SECONDS: int = 180
+    AI_MAX_RETRIES: int = 2
+
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+
     @property
     def sync_database_url(self) -> str:
         """Returns synchronous database URL for Alembic migrations if needed."""

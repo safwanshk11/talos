@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from app.models.repository import Repository
 from app.models.github import GitHubConnection
 from app.models.user import User
+from app.models.future import MaintenanceIssue
 from app.services.github_service import GitHubService
 
 

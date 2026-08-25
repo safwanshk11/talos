@@ -9,15 +9,17 @@ class MaintenanceIssue(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     repository_id = Column(Integer, ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False)
-    
+
     # Issue Fingerprint for Deduplication
     fingerprint = Column(String, index=True, nullable=True)
-    
+
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     severity = Column(String, default="MEDIUM")  # CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN
     category = Column(String, default="vulnerability") # vulnerability, outdated_dependency, ci_failure, deprecated_api
-    status = Column(String, default="OPEN") # OPEN, ANALYZING, PATCHING, VERIFIED, DELIVERED, FAILED, ESCALATED, RESOLVED
+    # OPEN, ANALYZING, PLANNING, PLANNED, SANDBOXING, PATCHING, PATCH_READY,
+    # VERIFIED, DELIVERED, FAILED, ESCALATED, RESOLVED
+    status = Column(String, default="OPEN")
     
     # Vulnerability Specific Metadata
     package_name = Column(String, index=True, nullable=True)
@@ -48,9 +50,11 @@ class MaintenanceJob(Base):
     id = Column(Integer, primary_key=True, index=True)
     repository_id = Column(Integer, ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False)
     issue_id = Column(Integer, ForeignKey("maintenance_issues.id", ondelete="CASCADE"), nullable=True)
-    status = Column(String, default="queued") # queued, running, passed, failed, escalated
-    risk_level = Column(String, default="low") # low, medium, high
-    
+    # queued, analyzing, planning, planned, sandboxing, patching, patch_ready, failed, escalated
+    status = Column(String, default="queued")
+    risk_level = Column(String, nullable=True) # low, medium, high
+    risk_reason = Column(Text, nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -69,8 +73,19 @@ class PatchAttempt(Base):
     commit_sha = Column(String, nullable=True)
     patch_diff = Column(Text, nullable=True)
     attempt_number = Column(Integer, default=1)
-    status = Column(String, default="created")
+    status = Column(String, default="created")  # created, ready, failed, escalated
 
+    # AI reasoning trail for this attempt
+    ai_provider = Column(String, nullable=True)
+    ai_model = Column(String, nullable=True)
+    analysis = Column(JSON, nullable=True)          # AIProvider.analyze_problem() output
+    plan = Column(JSON, nullable=True)               # AIProvider.generate_plan() output (structured plan)
+    files_modified = Column(JSON, nullable=True)     # list of relative file paths actually changed
+    workspace_path = Column(String, nullable=True)   # isolated clone on disk, kept for Phase 4 verification
+    failure_reason = Column(Text, nullable=True)
+
+    started_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    completed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     job = relationship("MaintenanceJob", back_populates="patch_attempts")

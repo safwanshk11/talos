@@ -7,11 +7,16 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 # Install system dependencies
+# nodejs/npm are required so deterministic package-manager operations (npm install
+# <pkg>@<version>) can update package.json/package-lock.json instead of the AI
+# model hand-editing lockfiles.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     curl \
     git \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

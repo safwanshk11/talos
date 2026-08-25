@@ -21,7 +21,7 @@ export const MetricsOverview: React.FC<MetricsOverviewProps> = ({ stats, loading
     {
       title: 'Active Issues',
       value: stats?.active_issues_count ?? 0,
-      sub: 'Phase 2 Detection',
+      sub: 'Ready for TALOS Fix',
       icon: AlertTriangle,
       color: 'text-amber-400',
       bgColor: 'bg-amber-500/10',

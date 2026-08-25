@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import json
 import hashlib
@@ -290,7 +291,10 @@ class ScannerService:
                         "package_name": pkg_name,
                         "current_version": curr_ver,
                         "affected_range": affected_ranges_str.strip(),
-                        "recommended_version": recommended_ver or "Latest patch",
+                        # "latest" (not a human-readable label) — this value flows straight
+                        # into deterministic package-manager upgrade commands in Phase 3,
+                        # so it must always be a string npm/pip can actually resolve.
+                        "recommended_version": recommended_ver or "latest",
                         "advisory_id": advisory_id,
                         "source": "OSV / Advisory",
                         "affected_files": affected_files,

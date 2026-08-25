@@ -62,6 +62,7 @@ class ActionLogResponse(BaseModel):
     id: int
     repository_id: Optional[int] = None
     scan_id: Optional[int] = None
+    job_id: Optional[int] = None
     timestamp: datetime
     step: str
     message: str

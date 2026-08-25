@@ -78,6 +78,20 @@ export interface RepositoryScan {
   error_message?: string;
 }
 
+export type MaintenanceIssueStatus =
+  | 'OPEN'
+  | 'ANALYZING'
+  | 'PLANNING'
+  | 'PLANNED'
+  | 'SANDBOXING'
+  | 'PATCHING'
+  | 'PATCH_READY'
+  | 'VERIFIED'
+  | 'DELIVERED'
+  | 'FAILED'
+  | 'ESCALATED'
+  | 'RESOLVED';
+
 export interface MaintenanceIssue {
   id: number;
   repository_id: number;
@@ -86,7 +100,7 @@ export interface MaintenanceIssue {
   description?: string;
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
   category: string;
-  status: 'OPEN' | 'ANALYZING' | 'PATCHING' | 'VERIFIED' | 'DELIVERED' | 'FAILED' | 'ESCALATED' | 'RESOLVED';
+  status: MaintenanceIssueStatus;
   package_name?: string;
   current_version?: string;
   affected_range?: string;
@@ -98,6 +112,72 @@ export interface MaintenanceIssue {
   detected_at: string;
   last_seen_at: string;
   resolved_at?: string;
+}
+
+// Phase 3 Entities
+
+export interface MaintenancePlan {
+  summary: string;
+  root_cause: string;
+  target_version: string;
+  requires_code_changes: boolean;
+  files_to_modify: string[];
+  actions: string[];
+  verification_recommendations: string[];
+  risk: 'LOW' | 'MEDIUM' | 'HIGH';
+  risk_reason: string;
+  escalate: boolean;
+  escalation_reason: string;
+}
+
+export interface ProblemAnalysis {
+  root_cause: string;
+  affected_component: string;
+  reasoning: string;
+  missing_information: string[];
+  escalation_required: boolean;
+  escalation_reason: string;
+}
+
+export interface PatchAttempt {
+  id: number;
+  job_id: number;
+  attempt_number: number;
+  branch_name: string;
+  commit_sha?: string;
+  status: 'created' | 'ready' | 'failed' | 'escalated';
+  ai_provider?: string;
+  ai_model?: string;
+  analysis?: ProblemAnalysis;
+  plan?: MaintenancePlan;
+  files_modified?: string[];
+  patch_diff?: string;
+  failure_reason?: string;
+  started_at?: string;
+  completed_at?: string;
+  created_at: string;
+}
+
+export type MaintenanceJobStatus =
+  | 'analyzing'
+  | 'planning'
+  | 'planned'
+  | 'sandboxing'
+  | 'patching'
+  | 'patch_ready'
+  | 'failed'
+  | 'escalated';
+
+export interface MaintenanceJob {
+  id: number;
+  repository_id: number;
+  issue_id?: number;
+  status: MaintenanceJobStatus;
+  risk_level?: 'low' | 'medium' | 'high';
+  risk_reason?: string;
+  created_at: string;
+  completed_at?: string;
+  attempts: PatchAttempt[];
 }
 
 export interface RepositoryReadiness {

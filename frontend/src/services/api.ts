@@ -8,6 +8,7 @@ import {
   MaintenanceIssue,
   RepositoryReadiness,
   ActionLog,
+  MaintenanceJob,
 } from '../types';
 
 const API_BASE = '/api/v1';
@@ -88,4 +89,12 @@ export const api = {
     request<MaintenanceIssue>(`/repositories/${repoId}/issues/${issueId}`),
   getReadiness: (id: number) => request<RepositoryReadiness | null>(`/repositories/${id}/readiness`),
   getLogs: (id: number) => request<ActionLog[]>(`/repositories/${id}/logs`),
+
+  // Phase 3: Planning & Patch Generation
+  prepareFix: (repoId: number, issueId: number) =>
+    request<MaintenanceJob>(`/repositories/${repoId}/issues/${issueId}/prepare-fix`, { method: 'POST' }),
+  getIssueJobs: (repoId: number, issueId: number) =>
+    request<MaintenanceJob[]>(`/repositories/${repoId}/issues/${issueId}/jobs`),
+  getJobDetail: (repoId: number, jobId: number) =>
+    request<MaintenanceJob>(`/repositories/${repoId}/jobs/${jobId}`),
 };
