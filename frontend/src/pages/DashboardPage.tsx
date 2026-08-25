@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/api';
 import { Repository, DashboardStats } from '../types';
 import { MetricsOverview } from '../components/MetricsOverview';
@@ -9,6 +9,8 @@ import {
   RefreshCw,
   AlertCircle,
   ShieldAlert,
+  Search,
+  X,
 } from 'lucide-react';
 
 interface DashboardPageProps {
@@ -24,7 +26,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [syncingId, setSyncingId] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
@@ -47,30 +49,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     fetchData();
   }, []);
 
-  const handleSync = async (id: number) => {
-    setSyncingId(id);
-    try {
-      const updated = await api.syncRepository(id);
-      setRepositories((prev) => prev.map((r) => (r.id === id ? updated : r)));
-    } catch (err: any) {
-      alert(`Sync failed: ${err.message}`);
-    } finally {
-      setSyncingId(null);
-    }
-  };
-
-  const handleToggleMonitoring = async (id: number, currentStatus: 'active' | 'paused') => {
-    const nextStatus = currentStatus === 'active' ? 'paused' : 'active';
-    try {
-      const updated = await api.toggleMonitoring(id, nextStatus);
-      setRepositories((prev) => prev.map((r) => (r.id === id ? updated : r)));
-      // Refresh stats
-      const newStats = await api.getDashboardStats();
-      setStats(newStats);
-    } catch (err: any) {
-      alert(`Failed to update status: ${err.message}`);
-    }
-  };
+  const filteredRepositories = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return repositories;
+    return repositories.filter((r) =>
+      [r.full_name, r.name, r.owner, r.primary_language]
+        .filter(Boolean)
+        .some((field) => field!.toLowerCase().includes(query))
+    );
+  }, [repositories, searchQuery]);
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
@@ -122,13 +109,36 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
       {/* Connected Repositories Section */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between border-b border-subtle pb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-subtle pb-3">
           <div className="flex items-center gap-2">
             <GitFork className="w-4 h-4 text-blue-400" />
             <h2 className="text-base font-semibold text-slate-200 font-mono">
-              CONNECTED REPOSITORIES ({repositories.length})
+              CONNECTED REPOSITORIES ({filteredRepositories.length}{searchQuery ? ` / ${repositories.length}` : ''})
             </h2>
           </div>
+
+          {/* Search */}
+          {repositories.length > 0 && (
+            <div className="relative w-full sm:w-72">
+              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search repositories..."
+                className="w-full bg-input border border-muted rounded-lg pl-9 pr-8 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  title="Clear search"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-slate-800 text-slate-500 hover:text-slate-200"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Loading Skeletons */}
@@ -139,7 +149,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <div className="h-44 skeleton rounded-lg"></div>
           </div>
         ) : repositories.length === 0 ? (
-          /* Empty State */
+          /* Empty State: nothing connected at all */
           <div className="p-12 text-center border border-dashed border-subtle rounded-xl bg-slate-900/30 space-y-4">
             <div className="w-12 h-12 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 mx-auto flex items-center justify-center">
               <ShieldAlert className="w-6 h-6" />
@@ -160,18 +170,29 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <span>Connect GitHub Repository</span>
             </button>
           </div>
+        ) : filteredRepositories.length === 0 ? (
+          /* Empty State: search matched nothing */
+          <div className="p-12 text-center border border-dashed border-subtle rounded-xl bg-slate-900/30 space-y-3">
+            <div className="w-12 h-12 rounded-full bg-slate-800/60 border border-subtle text-slate-400 mx-auto flex items-center justify-center">
+              <Search className="w-6 h-6" />
+            </div>
+            <div className="max-w-md mx-auto space-y-1">
+              <h3 className="text-base font-semibold text-slate-200">
+                No repositories found for "{searchQuery}"
+              </h3>
+              <p className="text-xs text-slate-400">
+                Try a different name, owner, or language.
+              </p>
+            </div>
+            <button onClick={() => setSearchQuery('')} className="btn btn-secondary text-xs">
+              Clear Search
+            </button>
+          </div>
         ) : (
           /* Repositories Grid */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {repositories.map((repo) => (
-              <RepositoryCard
-                key={repo.id}
-                repo={repo}
-                onSelect={onSelectRepo}
-                onSync={handleSync}
-                onToggleMonitoring={handleToggleMonitoring}
-                syncingId={syncingId}
-              />
+            {filteredRepositories.map((repo) => (
+              <RepositoryCard key={repo.id} repo={repo} onSelect={onSelectRepo} />
             ))}
           </div>
         )}

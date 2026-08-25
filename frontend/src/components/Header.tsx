@@ -18,7 +18,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Title / Breadcrumb context */}
       <div className="flex items-center gap-3">
         <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-          v1.0.0-phase3
+          v1.0.0-phase4
         </span>
         <span className="text-slate-500 text-sm">/</span>
         <span className="text-slate-300 font-medium text-sm">Repository Maintenance Control</span>

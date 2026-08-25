@@ -9,6 +9,7 @@ import {
 import { ReadinessCard } from '../components/ReadinessCard';
 import { ScanProgressModal } from '../components/ScanProgressModal';
 import { IssueDetailModal } from '../components/IssueDetailModal';
+import { RemoveRepositoryModal } from '../components/RemoveRepositoryModal';
 import {
   ArrowLeft,
   GitBranch,
@@ -26,6 +27,8 @@ import {
   ChevronRight,
   Shield,
   Loader2,
+  Trash2,
+  PauseCircle,
 } from 'lucide-react';
 
 interface RepositoryDetailPageProps {
@@ -53,6 +56,11 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
 
   // Selected Issue for Detail Modal
   const [selectedIssue, setSelectedIssue] = useState<MaintenanceIssue | null>(null);
+
+  // Remove Repository flow
+  const [removeModalOpen, setRemoveModalOpen] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   const fetchRepoData = async () => {
     setLoading(true);
@@ -99,6 +107,25 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
       setRepo(updated);
     } catch (err: any) {
       alert(`Failed to update status: ${err.message}`);
+    }
+  };
+
+  const handleConfirmRemove = async () => {
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      await api.removeRepository(repoId);
+      // Repository removed -> monitoring stopped -> navigate back to Repositories,
+      // where the list/dashboard counts refresh on mount.
+      onBack();
+    } catch (err: any) {
+      // Already removed (e.g. a stale double-click) is effectively success.
+      if (err.message?.includes('404') || err.message?.toLowerCase().includes('not found')) {
+        onBack();
+      } else {
+        setRemoveError(err.message || 'Failed to remove repository.');
+        setRemoving(false);
+      }
     }
   };
 
@@ -182,24 +209,32 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
             <span>{scanning ? 'Scanning Repository...' : 'Scan Repository'}</span>
           </button>
 
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="btn btn-secondary text-xs flex items-center gap-1.5"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin text-blue-400' : ''}`} />
-            <span>Sync Metadata</span>
-          </button>
-
-          <button
-            onClick={handleToggleMonitoring}
-            className={`btn text-xs flex items-center gap-1.5 ${
-              isPaused ? 'btn-primary' : 'btn-secondary'
-            }`}
-          >
-            {isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5 text-amber-400" />}
-            <span>{isPaused ? 'Resume Monitoring' : 'Pause Monitoring'}</span>
-          </button>
+          {isPaused ? (
+            <>
+              <button
+                onClick={handleToggleMonitoring}
+                className="btn btn-primary text-xs flex items-center gap-1.5"
+              >
+                <Play className="w-3.5 h-3.5" />
+                <span>Resume Monitoring</span>
+              </button>
+              <button
+                onClick={() => setRemoveModalOpen(true)}
+                className="btn btn-danger text-xs flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Remove Repository</span>
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={handleToggleMonitoring}
+              className="btn btn-secondary text-xs flex items-center gap-1.5"
+            >
+              <Pause className="w-3.5 h-3.5 text-amber-400" />
+              <span>Pause Monitoring</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -236,6 +271,13 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
         </div>
+
+        {isPaused && (
+          <div className="p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 flex items-center gap-2.5 text-xs">
+            <PauseCircle className="w-4 h-4 shrink-0" />
+            <span>TALOS is no longer automatically monitoring this repository.</span>
+          </div>
+        )}
 
         {/* Detailed Metadata Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-mono">
@@ -399,6 +441,49 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
         )}
       </div>
 
+      {/* Repository Settings / Danger Zone */}
+      <div className="rounded-xl border border-red-500/20 bg-red-500/[0.03] overflow-hidden">
+        <div className="px-5 py-3 border-b border-red-500/20">
+          <h2 className="text-xs font-semibold text-red-300 font-mono uppercase tracking-wide">
+            Danger Zone
+          </h2>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm text-slate-200 font-medium">Sync repository metadata</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Re-fetch branch, language, and latest commit info from GitHub.
+              </p>
+            </div>
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="btn btn-secondary text-xs flex items-center gap-1.5 shrink-0"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin text-blue-400' : ''}`} />
+              <span>Sync Metadata</span>
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 pt-4 border-t border-subtle/50">
+            <div>
+              <p className="text-sm text-slate-200 font-medium">Remove this repository</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Disconnect from TALOS. Your GitHub repository and its code are never modified or deleted.
+              </p>
+            </div>
+            <button
+              onClick={() => setRemoveModalOpen(true)}
+              className="btn btn-danger text-xs flex items-center gap-1.5 shrink-0"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Remove Repository</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Real-time Scan Progress Modal */}
       <ScanProgressModal
         isOpen={isScanModalOpen}
@@ -414,6 +499,19 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
         repoId={repoId}
         onClose={() => setSelectedIssue(null)}
         onJobUpdated={fetchRepoData}
+      />
+
+      {/* Remove Repository Confirmation */}
+      <RemoveRepositoryModal
+        repo={removeModalOpen ? repo : null}
+        removing={removing}
+        error={removeError}
+        onCancel={() => {
+          if (removing) return;
+          setRemoveModalOpen(false);
+          setRemoveError(null);
+        }}
+        onConfirm={handleConfirmRemove}
       />
     </div>
   );

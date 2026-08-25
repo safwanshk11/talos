@@ -87,6 +87,19 @@ async def lifespan(app: FastAPI):
         await conn.execute(text(
             "ALTER TABLE patch_attempts ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE"
         ))
+
+        # Phase 4: Verification Engine — verification_runs predates this phase's
+        # columns (only had patch_attempt_id + the old boolean summary fields).
+        for column, coltype in [
+            ("maintenance_job_id", "INTEGER"),
+            ("status", "VARCHAR"),
+            ("sandbox_id", "VARCHAR"),
+            ("started_at", "TIMESTAMP WITH TIME ZONE"),
+            ("completed_at", "TIMESTAMP WITH TIME ZONE"),
+        ]:
+            await conn.execute(text(
+                f"ALTER TABLE verification_runs ADD COLUMN IF NOT EXISTS {column} {coltype}"
+            ))
     logger.info("Database initialization complete.")
     yield
     # Shutdown
@@ -96,7 +109,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="TALOS Core Backend API — Autonomous Repository Maintenance System",
-    version="1.0.0-phase3",
+    version="1.0.0-phase4",
     lifespan=lifespan
 )
 

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { MaintenanceIssue, MaintenanceJob, ActionLog } from '../types';
+import { MaintenanceIssue, MaintenanceJob, ActionLog, VerificationRun } from '../types';
 import { api } from '../services/api';
 import { DiffViewer } from './DiffViewer';
+import { VerificationReport } from './VerificationReport';
 import {
   X,
   ShieldAlert,
@@ -16,6 +17,7 @@ import {
   Bot,
   ChevronDown,
   ChevronUp,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface IssueDetailModalProps {
@@ -30,11 +32,12 @@ const PIPELINE_STEPS: { key: string; label: string; statuses: string[] }[] = [
   { key: 'planning', label: 'PLANNING', statuses: ['planning', 'planned'] },
   { key: 'sandboxing', label: 'CREATING WORKSPACE', statuses: ['sandboxing'] },
   { key: 'patching', label: 'PATCHING', statuses: ['patching', 'patch_ready'] },
-  { key: 'verifying', label: 'VERIFYING', statuses: [] },
+  { key: 'verifying', label: 'VERIFYING', statuses: ['verifying', 'verified', 'verification_failed'] },
   { key: 'delivering', label: 'DELIVERING', statuses: [] },
 ];
 
-const STEP_ORDER = ['analyzing', 'planning', 'sandboxing', 'patching'];
+const STEP_ORDER = ['analyzing', 'planning', 'sandboxing', 'patching', 'verifying'];
+const TERMINAL_JOB_STATUSES = ['patch_ready', 'verified', 'verification_failed', 'failed', 'escalated'];
 
 export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue, repoId, onClose, onJobUpdated }) => {
   const [job, setJob] = useState<MaintenanceJob | null>(null);
@@ -44,16 +47,34 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue, repoI
   const [showLogs, setShowLogs] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  const [verificationRun, setVerificationRun] = useState<VerificationRun | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+
+  const loadLatestVerificationRun = async (jobId: number) => {
+    try {
+      const runs = await api.getVerificationRuns(repoId, jobId);
+      setVerificationRun(runs.length > 0 ? runs[0] : null);
+    } catch {
+      // non-fatal
+    }
+  };
+
   useEffect(() => {
     if (!issue) return;
     setJob(null);
     setPrepareError(null);
+    setVerificationRun(null);
+    setVerifyError(null);
     setJobLogs([]);
     setLoadingHistory(true);
     api
       .getIssueJobs(repoId, issue.id)
-      .then((jobs) => {
-        if (jobs.length > 0) setJob(jobs[0]);
+      .then(async (jobs) => {
+        if (jobs.length > 0) {
+          setJob(jobs[0]);
+          await loadLatestVerificationRun(jobs[0].id);
+        }
       })
       .catch(() => {})
       .finally(() => setLoadingHistory(false));
@@ -82,6 +103,8 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue, repoI
   const handlePrepareFix = async () => {
     setPreparing(true);
     setPrepareError(null);
+    setVerificationRun(null);
+    setVerifyError(null);
     try {
       const result = await api.prepareFix(repoId, issue.id);
       setJob(result);
@@ -94,8 +117,27 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue, repoI
     }
   };
 
+  const handleRunVerification = async () => {
+    if (!job) return;
+    setVerifying(true);
+    setVerifyError(null);
+    try {
+      const run = await api.runVerification(repoId, job.id);
+      setVerificationRun(run);
+      const updatedJob = await api.getJobDetail(repoId, job.id);
+      setJob(updatedJob);
+      await fetchJobLogs(job.id);
+      onJobUpdated?.();
+    } catch (err: any) {
+      setVerifyError(err.message || 'Verification failed to run.');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   const activeStepKey = (() => {
     if (!job) return preparing ? 'analyzing' : null;
+    if (verifying) return 'verifying';
     for (const step of PIPELINE_STEPS) {
       if (step.statuses.includes(job.status)) return step.key;
     }
@@ -103,8 +145,9 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue, repoI
   })();
 
   const activeStepIndex = activeStepKey ? STEP_ORDER.indexOf(activeStepKey) : -1;
-  const isTerminal = job && ['patch_ready', 'failed', 'escalated'].includes(job.status);
-  const canPrepareFix = !preparing && (!job || isTerminal);
+  const isTerminal = job && TERMINAL_JOB_STATUSES.includes(job.status);
+  const canPrepareFix = !preparing && !verifying && (!job || isTerminal);
+  const canRunVerification = !!job && !preparing && !verifying && job.status === 'patch_ready';
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 select-none">
@@ -232,16 +275,20 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue, repoI
               {PIPELINE_STEPS.map((step) => {
                 const stepIndex = STEP_ORDER.indexOf(step.key);
                 const disabled = stepIndex === -1;
-                const isActive = step.key === activeStepKey;
+                const isActive = step.key === activeStepKey && (preparing || verifying || job?.status === 'verifying');
                 const isDone = !disabled && activeStepIndex > stepIndex && !isActive;
                 const isPatchReady = job?.status === 'patch_ready' && step.key === 'patching';
+                const isVerified = job?.status === 'verified' && step.key === 'verifying';
+                const isVerificationFailed = job?.status === 'verification_failed' && step.key === 'verifying';
 
                 let cls = 'bg-slate-950/50 border-subtle text-slate-600';
                 if (disabled) {
                   cls = 'bg-slate-950/30 border-subtle text-slate-700';
+                } else if (isVerificationFailed) {
+                  cls = 'bg-red-500/10 border-red-500/30 text-red-400';
                 } else if (isActive) {
                   cls = 'bg-blue-500/10 border-blue-500/40 text-blue-300';
-                } else if (isDone || isPatchReady) {
+                } else if (isDone || isPatchReady || isVerified) {
                   cls = 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400';
                 }
 
@@ -249,10 +296,11 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue, repoI
                   <div key={step.key} className={`p-2 rounded border text-center uppercase tracking-wide ${cls}`}>
                     <div className="flex items-center justify-center gap-1">
                       {isActive && <Loader2 className="w-3 h-3 animate-spin" />}
-                      {(isDone || isPatchReady) && <CheckCircle2 className="w-3 h-3" />}
+                      {(isDone || isPatchReady || isVerified) && <CheckCircle2 className="w-3 h-3" />}
+                      {isVerificationFailed && <XCircle className="w-3 h-3" />}
                       <span>{step.label}</span>
                     </div>
-                    {disabled && <span className="block text-[9px] normal-case text-slate-700">Phase 4/5</span>}
+                    {disabled && <span className="block text-[9px] normal-case text-slate-700">Phase 5</span>}
                   </div>
                 );
               })}
@@ -289,11 +337,32 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue, repoI
               </div>
             )}
 
-            {job?.status === 'patch_ready' && latestAttempt?.plan && (
+            {verifyError && (
+              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-2 font-mono">
+                <XCircle className="w-4 h-4 shrink-0" />
+                <span>{verifyError}</span>
+              </div>
+            )}
+
+            {['patch_ready', 'verifying', 'verified', 'verification_failed'].includes(job?.status || '') && latestAttempt?.plan && (
               <div className="space-y-4">
-                <div className="p-3.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 font-mono">
-                  <strong>Patch prepared. Awaiting verification.</strong> This patch is untrusted until Phase 4 verifies it — TALOS has not proven it works yet.
-                </div>
+                {job?.status === 'patch_ready' && (
+                  <div className="p-3.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 font-mono">
+                    <strong>Patch prepared. Awaiting verification.</strong> This patch is untrusted until Phase 4 verifies it — TALOS has not proven it works yet.
+                  </div>
+                )}
+                {job?.status === 'verified' && (
+                  <div className="p-3.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-mono flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 shrink-0" />
+                    <span><strong>Verified.</strong> Real build/test/security checks passed and the original vulnerability is confirmed removed.</span>
+                  </div>
+                )}
+                {job?.status === 'verification_failed' && (
+                  <div className="p-3.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-300 font-mono flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 shrink-0" />
+                    <span><strong>Rejected.</strong> Verification found a real failure — see the report below. TALOS will not claim this issue is fixed.</span>
+                  </div>
+                )}
 
                 {/* Plan View */}
                 <div className="space-y-2">
@@ -352,6 +421,20 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue, repoI
                   </h4>
                   <DiffViewer diff={latestAttempt.patch_diff || ''} />
                 </div>
+
+                {verificationRun && (
+                  <div className="space-y-2">
+                    <h4 className="font-semibold text-slate-300 font-mono uppercase text-[11px] flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+                      Verification Report
+                    </h4>
+                    <VerificationReport
+                      status={verificationRun.status}
+                      checks={verificationRun.checks}
+                      sandboxId={verificationRun.sandbox_id}
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -386,10 +469,20 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue, repoI
         {/* Footer */}
         <div className="p-4 border-t border-subtle bg-slate-900/50 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2 text-slate-500 font-mono text-[11px]">
-            {job?.status === 'patch_ready' ? (
+            {job?.status === 'verified' ? (
+              <>
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Verified by real build/test/security checks — not AI confidence</span>
+              </>
+            ) : job?.status === 'verification_failed' ? (
+              <>
+                <ShieldAlert className="w-3.5 h-3.5 text-red-500" />
+                <span>Rejected — a real deterministic check failed</span>
+              </>
+            ) : job?.status === 'patch_ready' ? (
               <>
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                <span>Patch untrusted — Verification (Phase 4) not yet run</span>
+                <span>Patch untrusted — verification not yet run</span>
               </>
             ) : (
               <>
@@ -403,16 +496,29 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue, repoI
             <button onClick={onClose} className="btn btn-secondary text-xs">
               Close
             </button>
+            {canRunVerification && (
+              <button
+                onClick={handleRunVerification}
+                disabled={verifying}
+                title="Run the real Phase 4 verification pipeline: isolated sandbox, deterministic checks, and a re-scan of the original vulnerability"
+                className="btn btn-primary text-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {verifying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                <span>{verifying ? 'Verifying...' : 'Run Verification'}</span>
+              </button>
+            )}
             <button
               onClick={handlePrepareFix}
               disabled={!canPrepareFix}
-              title={job?.status === 'patch_ready' ? 'Re-run to generate a new patch attempt' : 'Run the real Phase 3 planning + patch generation workflow'}
-              className="btn btn-primary text-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={job ? 'Re-run to generate a new patch attempt' : 'Run the real Phase 3 planning + patch generation workflow'}
+              className={`btn text-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed ${canRunVerification ? 'btn-secondary' : 'btn-primary'}`}
             >
               {preparing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wrench className="w-3.5 h-3.5" />}
               <span>
                 {preparing
                   ? 'TALOS Working...'
+                  : job?.status === 'verified' || job?.status === 'verification_failed'
+                  ? 'Prepare New Fix'
                   : job?.status === 'patch_ready'
                   ? 'Regenerate Fix'
                   : job?.status === 'escalated' || job?.status === 'failed'

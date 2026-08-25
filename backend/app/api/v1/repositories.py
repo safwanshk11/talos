@@ -6,7 +6,7 @@ from sqlalchemy import desc
 
 from app.db.session import get_db
 from app.models.user import User
-from app.models.future import MaintenanceIssue, ActionLog, MaintenanceJob
+from app.models.future import MaintenanceIssue, ActionLog, MaintenanceJob, VerificationRun
 from app.models.scan import RepositoryScan
 from app.models.readiness import RepositoryReadiness
 from app.api.deps import get_current_user
@@ -25,10 +25,12 @@ from app.schemas.scan import (
     ActionLogResponse
 )
 from app.schemas.patch import MaintenanceJobResponse
+from app.schemas.verification import VerificationRunResponse
 from app.services.repository_service import RepositoryService
 from app.services.github_service import GitHubService
 from app.services.scanner_service import ScannerService
 from app.services.patch_service import PatchService
+from app.services.verification.verification_service import VerificationService
 
 router = APIRouter()
 
@@ -136,6 +138,19 @@ async def get_repository_detail(
     if not repo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repository not found.")
     return _to_repository_response(repo)
+
+
+@router.delete("/{repository_id}")
+async def remove_repository(
+    repository_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Disconnect a repository from TALOS. GitHub is never touched — this only
+    means TALOS stops tracking/monitoring the repository. Scan history, issues,
+    and action logs are preserved (soft-delete)."""
+    await RepositoryService.remove_repository(db, current_user.id, repository_id)
+    return {"message": "Repository disconnected from TALOS.", "repository_id": repository_id}
 
 
 @router.post("/{repository_id}/sync", response_model=RepositoryResponse)
@@ -300,3 +315,60 @@ async def get_job_detail(
     if not job:
         raise HTTPException(status_code=404, detail="Maintenance job not found.")
     return await PatchService.to_response_dict(db, job)
+
+
+# ==========================================
+# PHASE 4: VERIFICATION ENGINE
+# ==========================================
+
+@router.post("/{repository_id}/jobs/{job_id}/verify", response_model=VerificationRunResponse)
+async def verify_job(
+    repository_id: int,
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Run the real Phase 4 verification pipeline against a PATCH_READY job:
+    isolated sandbox, deterministic checks (install/build/typecheck/lint/test/
+    security audit), and a re-scan confirming the original vulnerability is
+    actually gone. Never merges or pushes anywhere — only decides
+    VERIFIED vs VERIFICATION_FAILED."""
+    run = await VerificationService.run_verification(db, current_user.id, repository_id, job_id)
+    return await VerificationService.to_response_dict(db, run)
+
+
+@router.get("/{repository_id}/jobs/{job_id}/verification-runs", response_model=List[VerificationRunResponse])
+async def list_verification_runs(
+    repository_id: int,
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = (
+        select(VerificationRun)
+        .join(MaintenanceJob, VerificationRun.maintenance_job_id == MaintenanceJob.id)
+        .where(MaintenanceJob.id == job_id, MaintenanceJob.repository_id == repository_id)
+        .order_by(desc(VerificationRun.started_at))
+    )
+    res = await db.execute(stmt)
+    runs = res.scalars().all()
+    return [await VerificationService.to_response_dict(db, run) for run in runs]
+
+
+@router.get("/{repository_id}/verification-runs/{run_id}", response_model=VerificationRunResponse)
+async def get_verification_run(
+    repository_id: int,
+    run_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = (
+        select(VerificationRun)
+        .join(MaintenanceJob, VerificationRun.maintenance_job_id == MaintenanceJob.id)
+        .where(VerificationRun.id == run_id, MaintenanceJob.repository_id == repository_id)
+    )
+    res = await db.execute(stmt)
+    run = res.scalars().first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Verification run not found.")
+    return await VerificationService.to_response_dict(db, run)

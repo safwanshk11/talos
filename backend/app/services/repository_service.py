@@ -8,7 +8,7 @@ from fastapi import HTTPException, status
 from app.models.repository import Repository
 from app.models.github import GitHubConnection
 from app.models.user import User
-from app.models.future import MaintenanceIssue
+from app.models.future import MaintenanceIssue, MaintenanceJob
 from app.services.github_service import GitHubService
 
 
@@ -28,15 +28,25 @@ class RepositoryService:
 
     @staticmethod
     async def list_connected_repositories(db: AsyncSession, user_id: int) -> List[Repository]:
-        """List all repositories connected to TALOS for the user."""
-        stmt = select(Repository).where(Repository.user_id == user_id).order_by(Repository.updated_at.desc())
+        """List all repositories actively connected to TALOS for the user (excludes
+        repositories the user has removed/disconnected)."""
+        stmt = (
+            select(Repository)
+            .where(Repository.user_id == user_id, Repository.connection_status != "disconnected")
+            .order_by(Repository.updated_at.desc())
+        )
         result = await db.execute(stmt)
         return result.scalars().all()
 
     @staticmethod
     async def get_repository_by_id(db: AsyncSession, user_id: int, repository_id: int) -> Optional[Repository]:
-        """Get repository by ID for user."""
-        stmt = select(Repository).where(Repository.id == repository_id, Repository.user_id == user_id)
+        """Get repository by ID for user. Disconnected repositories are treated as
+        not found — TALOS no longer tracks them."""
+        stmt = select(Repository).where(
+            Repository.id == repository_id,
+            Repository.user_id == user_id,
+            Repository.connection_status != "disconnected",
+        )
         result = await db.execute(stmt)
         return result.scalars().first()
 
@@ -45,11 +55,18 @@ class RepositoryService:
         db: AsyncSession, user_id: int, github_repo_id: str, full_name: str
     ) -> Repository:
         """Connect a new GitHub repository to TALOS."""
-        # Check if already connected
+        # Check if already connected (including a previously-removed connection,
+        # which gets reactivated rather than duplicated)
         stmt = select(Repository).where(Repository.user_id == user_id, Repository.github_repo_id == str(github_repo_id))
         result = await db.execute(stmt)
         existing = result.scalars().first()
         if existing:
+            if existing.connection_status == "disconnected":
+                existing.connection_status = "connected"
+                existing.monitoring_status = "active"
+                existing.last_checked_at = datetime.now(timezone.utc)
+                await db.commit()
+                await db.refresh(existing)
             return existing
 
         token = await RepositoryService.get_user_github_token(db, user_id)
@@ -147,28 +164,66 @@ class RepositoryService:
 
     @staticmethod
     async def get_dashboard_stats(db: AsyncSession, user_id: int) -> Dict[str, int]:
-        """Compute real stats for dashboard from database."""
-        stmt_total = select(func.count(Repository.id)).where(Repository.user_id == user_id)
+        """Compute real stats for dashboard from database. Removed/disconnected
+        repositories are excluded from every count."""
+        stmt_total = select(func.count(Repository.id)).where(
+            Repository.user_id == user_id, Repository.connection_status != "disconnected"
+        )
         total_res = await db.execute(stmt_total)
         total = total_res.scalar() or 0
 
-        stmt_active = select(func.count(Repository.id)).where(Repository.user_id == user_id, Repository.monitoring_status == "active")
+        stmt_active = select(func.count(Repository.id)).where(
+            Repository.user_id == user_id,
+            Repository.connection_status != "disconnected",
+            Repository.monitoring_status == "active",
+        )
         active_res = await db.execute(stmt_active)
         active = active_res.scalar() or 0
 
-        # Real count of OPEN issues across user repositories
+        # Real count of OPEN issues across the user's actively-connected repositories
         stmt_issues = (
             select(func.count(MaintenanceIssue.id))
             .join(Repository, MaintenanceIssue.repository_id == Repository.id)
-            .where(Repository.user_id == user_id, MaintenanceIssue.status == "OPEN")
+            .where(
+                Repository.user_id == user_id,
+                Repository.connection_status != "disconnected",
+                MaintenanceIssue.status == "OPEN",
+            )
         )
         issues_res = await db.execute(stmt_issues)
         open_issues = issues_res.scalar() or 0
+
+        # Real count of Phase 4 VERIFIED jobs across the user's actively-connected repositories
+        stmt_verified = (
+            select(func.count(MaintenanceJob.id))
+            .join(Repository, MaintenanceJob.repository_id == Repository.id)
+            .where(
+                Repository.user_id == user_id,
+                Repository.connection_status != "disconnected",
+                MaintenanceJob.status == "verified",
+            )
+        )
+        verified_res = await db.execute(stmt_verified)
+        verified_patches = verified_res.scalar() or 0
 
         return {
             "total_repositories": total,
             "active_monitoring_count": active,
             "active_issues_count": open_issues,
-            "verified_patches_count": 0,
-            "awaiting_review_count": 0,
+            "verified_patches_count": verified_patches,
+            "awaiting_review_count": 0,  # Phase 5: PR Delivery — not yet implemented
         }
+
+    @staticmethod
+    async def remove_repository(db: AsyncSession, user_id: int, repository_id: int) -> None:
+        """Disconnect a repository from TALOS. This is a soft-delete: the row and
+        all associated scan/issue/patch/action-log history are preserved, but the
+        repository stops appearing in listings and stats, and is no longer
+        reachable by scan/prepare-fix endpoints. GitHub itself is never touched."""
+        repo = await RepositoryService.get_repository_by_id(db, user_id, repository_id)
+        if not repo:
+            raise HTTPException(status_code=404, detail="Repository not found.")
+
+        repo.connection_status = "disconnected"
+        repo.monitoring_status = "paused"
+        await db.commit()

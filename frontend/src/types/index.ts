@@ -36,7 +36,7 @@ export interface Repository {
   html_url: string;
   latest_commit: LatestCommit;
   monitoring_status: 'active' | 'paused';
-  connection_status: 'connected' | 'error' | 'syncing';
+  connection_status: 'connected' | 'error' | 'syncing' | 'disconnected';
   last_checked_at: string;
   last_scanned_at?: string;
   created_at: string;
@@ -86,7 +86,9 @@ export type MaintenanceIssueStatus =
   | 'SANDBOXING'
   | 'PATCHING'
   | 'PATCH_READY'
+  | 'VERIFYING'
   | 'VERIFIED'
+  | 'VERIFICATION_FAILED'
   | 'DELIVERED'
   | 'FAILED'
   | 'ESCALATED'
@@ -165,6 +167,9 @@ export type MaintenanceJobStatus =
   | 'sandboxing'
   | 'patching'
   | 'patch_ready'
+  | 'verifying'
+  | 'verified'
+  | 'verification_failed'
   | 'failed'
   | 'escalated';
 
@@ -178,6 +183,48 @@ export interface MaintenanceJob {
   created_at: string;
   completed_at?: string;
   attempts: PatchAttempt[];
+}
+
+// Phase 4 Entities
+
+export type VerificationCheckType =
+  | 'INSTALL'
+  | 'BUILD'
+  | 'TYPECHECK'
+  | 'LINT'
+  | 'TEST'
+  | 'SECURITY_AUDIT'
+  | 'VULNERABILITY_RESCAN';
+
+export type VerificationCheckStatus = 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'SKIPPED' | 'TIMED_OUT';
+
+export interface VerificationCheck {
+  id: number;
+  verification_run_id: number;
+  type: VerificationCheckType;
+  command?: string;
+  status: VerificationCheckStatus;
+  exit_code?: number;
+  duration_ms?: number;
+  stdout_excerpt?: string;
+  stderr_excerpt?: string;
+  check_metadata?: Record<string, any>;
+  order_index: number;
+  started_at?: string;
+  completed_at?: string;
+}
+
+export type VerificationRunStatus = 'pending' | 'running' | 'verified' | 'verification_failed' | 'failed' | 'cancelled';
+
+export interface VerificationRun {
+  id: number;
+  maintenance_job_id?: number;
+  patch_attempt_id: number;
+  status: VerificationRunStatus;
+  sandbox_id?: string;
+  started_at?: string;
+  completed_at?: string;
+  checks: VerificationCheck[];
 }
 
 export interface RepositoryReadiness {

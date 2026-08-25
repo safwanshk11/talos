@@ -30,7 +30,7 @@ export const MetricsOverview: React.FC<MetricsOverviewProps> = ({ stats, loading
     {
       title: 'Verified Patches',
       value: stats?.verified_patches_count ?? 0,
-      sub: 'Phase 4 Verification',
+      sub: 'Sandbox-Verified',
       icon: CheckCircle2,
       color: 'text-emerald-400',
       bgColor: 'bg-emerald-500/10',

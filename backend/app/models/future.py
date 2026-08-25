@@ -18,7 +18,7 @@ class MaintenanceIssue(Base):
     severity = Column(String, default="MEDIUM")  # CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN
     category = Column(String, default="vulnerability") # vulnerability, outdated_dependency, ci_failure, deprecated_api
     # OPEN, ANALYZING, PLANNING, PLANNED, SANDBOXING, PATCHING, PATCH_READY,
-    # VERIFIED, DELIVERED, FAILED, ESCALATED, RESOLVED
+    # VERIFYING, VERIFIED, VERIFICATION_FAILED, DELIVERED, FAILED, ESCALATED, RESOLVED
     status = Column(String, default="OPEN")
     
     # Vulnerability Specific Metadata
@@ -50,7 +50,8 @@ class MaintenanceJob(Base):
     id = Column(Integer, primary_key=True, index=True)
     repository_id = Column(Integer, ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False)
     issue_id = Column(Integer, ForeignKey("maintenance_issues.id", ondelete="CASCADE"), nullable=True)
-    # queued, analyzing, planning, planned, sandboxing, patching, patch_ready, failed, escalated
+    # queued, analyzing, planning, planned, sandboxing, patching, patch_ready,
+    # verifying, verified, verification_failed, failed, escalated
     status = Column(String, default="queued")
     risk_level = Column(String, nullable=True) # low, medium, high
     risk_reason = Column(Text, nullable=True)
@@ -62,6 +63,7 @@ class MaintenanceJob(Base):
     issue = relationship("MaintenanceIssue", back_populates="jobs")
     patch_attempts = relationship("PatchAttempt", back_populates="job", cascade="all, delete-orphan")
     action_logs = relationship("ActionLog", back_populates="job", cascade="all, delete-orphan")
+    verification_runs = relationship("VerificationRun", back_populates="job", cascade="all, delete-orphan")
 
 
 class PatchAttempt(Base):
@@ -96,16 +98,56 @@ class VerificationRun(Base):
     __tablename__ = "verification_runs"
 
     id = Column(Integer, primary_key=True, index=True)
+    maintenance_job_id = Column(Integer, ForeignKey("maintenance_jobs.id", ondelete="CASCADE"), nullable=True)
     patch_attempt_id = Column(Integer, ForeignKey("patch_attempts.id", ondelete="CASCADE"), nullable=False)
-    passed = Column(Boolean, default=False)
+    # pending, running, verified, verification_failed, failed (infrastructure), cancelled
+    status = Column(String, default="pending")
+    sandbox_id = Column(String, nullable=True)
+
+    started_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Superseded by VerificationCheck rows below; kept unused rather than dropped
+    # to avoid a destructive migration on a table with no real migration tooling.
+    passed = Column(Boolean, nullable=True)
     build_passed = Column(Boolean, nullable=True)
     tests_passed = Column(Boolean, nullable=True)
     security_passed = Column(Boolean, nullable=True)
     output_log = Column(Text, nullable=True)
+    executed_at = Column(DateTime(timezone=True), nullable=True)
 
-    executed_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-
+    job = relationship("MaintenanceJob", back_populates="verification_runs")
     patch_attempt = relationship("PatchAttempt", back_populates="verification_runs")
+    checks = relationship(
+        "VerificationCheck",
+        back_populates="verification_run",
+        cascade="all, delete-orphan",
+        order_by="VerificationCheck.order_index",
+    )
+
+
+class VerificationCheck(Base):
+    __tablename__ = "verification_checks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    verification_run_id = Column(Integer, ForeignKey("verification_runs.id", ondelete="CASCADE"), nullable=False)
+
+    # INSTALL, BUILD, TYPECHECK, LINT, TEST, SECURITY_AUDIT, VULNERABILITY_RESCAN
+    type = Column(String, nullable=False)
+    command = Column(Text, nullable=True)
+    # PENDING, RUNNING, PASSED, FAILED, SKIPPED, TIMED_OUT
+    status = Column(String, default="PENDING")
+    exit_code = Column(Integer, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    stdout_excerpt = Column(Text, nullable=True)
+    stderr_excerpt = Column(Text, nullable=True)
+    check_metadata = Column(JSON, nullable=True)
+    order_index = Column(Integer, default=0)
+
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    verification_run = relationship("VerificationRun", back_populates="checks")
 
 
 class ActionLog(Base):

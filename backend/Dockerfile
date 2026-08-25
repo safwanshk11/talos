@@ -10,6 +10,11 @@ ENV PYTHONUNBUFFERED=1
 # nodejs/npm are required so deterministic package-manager operations (npm install
 # <pkg>@<version>) can update package.json/package-lock.json instead of the AI
 # model hand-editing lockfiles.
+# docker.io provides the `docker` CLI only — the daemon is never started here.
+# The container talks to the *host's* Docker engine via the socket mounted in
+# docker-compose.yml (docker-outside-of-docker), launching isolated sandbox
+# containers for Phase 4 verification instead of executing untrusted repo code
+# in-process.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
@@ -17,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     nodejs \
     npm \
+    docker-cli \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

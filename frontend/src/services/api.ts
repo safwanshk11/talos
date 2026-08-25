@@ -9,6 +9,7 @@ import {
   RepositoryReadiness,
   ActionLog,
   MaintenanceJob,
+  VerificationRun,
 } from '../types';
 
 const API_BASE = '/api/v1';
@@ -73,6 +74,8 @@ export const api = {
       body: JSON.stringify({ github_repo_id, full_name }),
     }),
   getRepositoryDetail: (id: number) => request<Repository>(`/repositories/${id}`),
+  removeRepository: (id: number) =>
+    request<{ message: string; repository_id: number }>(`/repositories/${id}`, { method: 'DELETE' }),
   syncRepository: (id: number) => request<Repository>(`/repositories/${id}/sync`, { method: 'POST' }),
   toggleMonitoring: (id: number, status: 'active' | 'paused') =>
     request<Repository>(`/repositories/${id}/monitoring`, {
@@ -97,4 +100,10 @@ export const api = {
     request<MaintenanceJob[]>(`/repositories/${repoId}/issues/${issueId}/jobs`),
   getJobDetail: (repoId: number, jobId: number) =>
     request<MaintenanceJob>(`/repositories/${repoId}/jobs/${jobId}`),
+
+  // Phase 4: Verification Engine
+  runVerification: (repoId: number, jobId: number) =>
+    request<VerificationRun>(`/repositories/${repoId}/jobs/${jobId}/verify`, { method: 'POST' }),
+  getVerificationRuns: (repoId: number, jobId: number) =>
+    request<VerificationRun[]>(`/repositories/${repoId}/jobs/${jobId}/verification-runs`),
 };

@@ -352,7 +352,11 @@ class PatchService:
 
     @staticmethod
     async def _get_repository(db: AsyncSession, user_id: int, repository_id: int) -> Repository:
-        stmt = select(Repository).where(Repository.id == repository_id, Repository.user_id == user_id)
+        stmt = select(Repository).where(
+            Repository.id == repository_id,
+            Repository.user_id == user_id,
+            Repository.connection_status != "disconnected",
+        )
         result = await db.execute(stmt)
         repo = result.scalars().first()
         if not repo:

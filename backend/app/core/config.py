@@ -39,6 +39,16 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.0-flash"
 
+    # Verification Engine (Phase 4)
+    VERIFICATION_SANDBOX_IMAGE_NPM: str = "node:20-slim"
+    VERIFICATION_SANDBOX_IMAGE_PIP: str = "python:3.11-slim"
+    VERIFICATION_TIMEOUT_INSTALL: int = 180
+    VERIFICATION_TIMEOUT_BUILD: int = 180
+    VERIFICATION_TIMEOUT_TEST: int = 180
+    VERIFICATION_TIMEOUT_DEFAULT: int = 120
+    VERIFICATION_MEMORY_LIMIT: str = "1g"
+    VERIFICATION_CPU_LIMIT: str = "1.5"
+
     @property
     def sync_database_url(self) -> str:
         """Returns synchronous database URL for Alembic migrations if needed."""

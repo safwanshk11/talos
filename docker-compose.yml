@@ -48,8 +48,20 @@ services:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash}
+      - TALOS_WORKSPACE_ROOT=/tmp/talos_workspaces
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Docker-outside-of-Docker: lets the backend launch isolated, ephemeral
+      # sandbox containers for Phase 4 verification via the host's own Docker
+      # engine. The backend container never runs untrusted repo code itself.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Named volume (not a bind mount) so patch workspaces are visible by the
+      # same path inside both the backend container and the sandbox containers
+      # it launches — bind-mounting a backend-container-local path wouldn't
+      # resolve on the host, since docker-outside-of-docker mounts are resolved
+      # against the host filesystem, not the caller container's.
+      - talos_workspaces:/tmp/talos_workspaces
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,3 +81,10 @@ services:
 
 volumes:
   postgres_data:
+  # Fixed (non-project-prefixed) name: the backend mounts this volume at
+  # /tmp/talos_workspaces for itself, and SandboxService references this exact
+  # same volume name when launching verification containers. Compose normally
+  # prefixes volume names with the project name (e.g. talos_talos_workspaces),
+  # which would silently break that reference, so it's pinned here.
+  talos_workspaces:
+    name: talos_workspaces

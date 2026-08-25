@@ -18,5 +18,5 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         "status": "ok",
         "service": "TALOS Core API",
         "database": db_status,
-        "version": "1.0.0-phase3"
+        "version": "1.0.0-phase4"
     }

@@ -10,6 +10,7 @@ from app.models.future import (
     MaintenanceJob,
     PatchAttempt,
     VerificationRun,
+    VerificationCheck,
     ActionLog,
     PullRequest,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "MaintenanceJob",
     "PatchAttempt",
     "VerificationRun",
+    "VerificationCheck",
     "ActionLog",
     "PullRequest",
 ]

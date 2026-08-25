@@ -1,21 +1,10 @@
 import React from 'react';
 import { Repository } from '../types';
-import {
-  GitBranch,
-  ExternalLink,
-  RefreshCw,
-  Play,
-  Pause,
-  ChevronRight,
-  Shield,
-} from 'lucide-react';
+import { GitBranch, ChevronRight } from 'lucide-react';
 
 interface RepositoryCardProps {
   repo: Repository;
   onSelect: (id: number) => void;
-  onSync: (id: number) => void;
-  onToggleMonitoring: (id: number, currentStatus: 'active' | 'paused') => void;
-  syncingId: number | null;
 }
 
 const getLanguageColor = (lang?: string): string => {
@@ -37,36 +26,25 @@ const getLanguageColor = (lang?: string): string => {
   return colors[lang] || '#3b82f6';
 };
 
-export const RepositoryCard: React.FC<RepositoryCardProps> = ({
-  repo,
-  onSelect,
-  onSync,
-  onToggleMonitoring,
-  syncingId,
-}) => {
-  const isSyncing = syncingId === repo.id;
+export const RepositoryCard: React.FC<RepositoryCardProps> = ({ repo, onSelect }) => {
   const isPaused = repo.monitoring_status === 'paused';
 
   return (
-    <div className="p-5 rounded-lg bg-card border border-subtle hover:border-slate-700 transition-all duration-200 flex flex-col justify-between group">
+    <button
+      onClick={() => onSelect(repo.id)}
+      className="w-full text-left p-5 rounded-lg bg-card border border-subtle hover:border-slate-700 hover:bg-card-hover transition-all duration-200 flex flex-col justify-between group"
+    >
       {/* Top Header */}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-2 overflow-hidden">
-          <Shield className="w-4 h-4 text-blue-400 shrink-0" />
-          <button
-            onClick={() => onSelect(repo.id)}
-            className="text-base font-semibold text-slate-100 hover:text-blue-400 transition-colors truncate font-mono text-left"
-          >
+          <GitBranch className="w-4 h-4 text-blue-400 shrink-0" />
+          <span className="text-base font-semibold text-slate-100 group-hover:text-blue-400 transition-colors truncate font-mono">
             {repo.full_name}
-          </button>
+          </span>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <span
-            className={`badge ${
-              isPaused ? 'badge-amber' : 'badge-green'
-            }`}
-          >
+          <span className={`badge ${isPaused ? 'badge-amber' : 'badge-green'}`}>
             <span
               className={`w-1.5 h-1.5 rounded-full ${
                 isPaused ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'
@@ -114,48 +92,12 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
           </span>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex items-center gap-2">
-          {/* External link */}
-          <a
-            href={repo.html_url}
-            target="_blank"
-            rel="noreferrer"
-            title="Open in GitHub"
-            className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
-
-          {/* Sync Metadata */}
-          <button
-            onClick={() => onSync(repo.id)}
-            disabled={isSyncing}
-            title="Sync metadata from GitHub"
-            className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-400' : ''}`} />
-          </button>
-
-          {/* Pause / Resume */}
-          <button
-            onClick={() => onToggleMonitoring(repo.id, repo.monitoring_status)}
-            title={isPaused ? 'Resume monitoring' : 'Pause monitoring'}
-            className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
-          >
-            {isPaused ? <Play className="w-3.5 h-3.5 text-emerald-400" /> : <Pause className="w-3.5 h-3.5 text-amber-400" />}
-          </button>
-
-          {/* Detail Link */}
-          <button
-            onClick={() => onSelect(repo.id)}
-            className="btn btn-secondary text-xs py-1 px-2 flex items-center gap-1"
-          >
-            <span>View</span>
-            <ChevronRight className="w-3 h-3" />
-          </button>
-        </div>
+        {/* Single navigation affordance */}
+        <span className="flex items-center gap-1 text-slate-400 group-hover:text-blue-400 transition-colors font-medium">
+          <span>View</span>
+          <ChevronRight className="w-3.5 h-3.5" />
+        </span>
       </div>
-    </div>
+    </button>
   );
 };
