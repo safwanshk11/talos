@@ -146,7 +146,7 @@ class RepositoryService:
 
     @staticmethod
     async def get_dashboard_stats(db: AsyncSession, user_id: int) -> Dict[str, int]:
-        """Compute real stats for dashboard."""
+        """Compute real stats for dashboard from database."""
         stmt_total = select(func.count(Repository.id)).where(Repository.user_id == user_id)
         total_res = await db.execute(stmt_total)
         total = total_res.scalar() or 0
@@ -155,10 +155,19 @@ class RepositoryService:
         active_res = await db.execute(stmt_active)
         active = active_res.scalar() or 0
 
+        # Real count of OPEN issues across user repositories
+        stmt_issues = (
+            select(func.count(MaintenanceIssue.id))
+            .join(Repository, MaintenanceIssue.repository_id == Repository.id)
+            .where(Repository.user_id == user_id, MaintenanceIssue.status == "OPEN")
+        )
+        issues_res = await db.execute(stmt_issues)
+        open_issues = issues_res.scalar() or 0
+
         return {
             "total_repositories": total,
             "active_monitoring_count": active,
-            "active_issues_count": 0,
+            "active_issues_count": open_issues,
             "verified_patches_count": 0,
             "awaiting_review_count": 0,
         }

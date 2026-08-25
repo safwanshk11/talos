@@ -1,4 +1,6 @@
-@charset "UTF-8";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 /* TALOS Developer Platform Theme (Linear / Vercel / GitHub Dark Inspired) */
 
@@ -17,20 +19,8 @@
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
 
-  --accent-blue: #3b82f6;
-  --accent-cyan: #06b6d4;
-  --accent-green: #10b981;
-  --accent-amber: #f59e0b;
-  --accent-red: #ef4444;
-  
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 body {
@@ -41,10 +31,6 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
-}
-
-code, pre, .font-mono {
-  font-family: var(--font-mono);
 }
 
 /* Custom Scrollbar */
@@ -63,19 +49,7 @@ code, pre, .font-mono {
   background: #475569;
 }
 
-/* Base Utility Classes */
-.bg-sidebar { background-color: var(--bg-sidebar); }
-.bg-card { background-color: var(--bg-card); }
-.bg-card-hover:hover { background-color: var(--bg-card-hover); }
-.bg-input { background-color: var(--bg-input); }
-
-.border-subtle { border-color: var(--border-subtle); }
-.border-muted { border-color: var(--border-muted); }
-
-.text-primary { color: var(--text-primary); }
-.text-secondary { color: var(--text-secondary); }
-.text-muted { color: var(--text-muted); }
-
+/* Custom Buttons & Badges */
 .btn {
   display: inline-flex;
   align-items: center;

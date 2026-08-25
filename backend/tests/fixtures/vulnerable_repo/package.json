@@ -1,0 +1,18 @@
+{
+  "name": "demo-vulnerable-app",
+  "version": "1.0.0",
+  "description": "TALOS Controlled Demo Repository with Known Vulnerable Package",
+  "main": "src/index.js",
+  "scripts": {
+    "build": "echo 'Building demo app'",
+    "test": "echo 'Running unit tests'",
+    "lint": "echo 'Running linter'"
+  },
+  "dependencies": {
+    "axios": "0.21.1",
+    "express": "4.17.1"
+  },
+  "devDependencies": {
+    "typescript": "4.9.5"
+  }
+}

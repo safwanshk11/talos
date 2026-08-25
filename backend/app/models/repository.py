@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, Text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from app.db.session import Base
 
@@ -30,12 +30,17 @@ class Repository(Base):
     monitoring_status = Column(String, default="active")  # active, paused
     connection_status = Column(String, default="connected")  # connected, error, syncing
     last_checked_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_scanned_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="repositories")
 
-    # Relationships to future entities
+    # Relationships
     issues = relationship("MaintenanceIssue", back_populates="repository", cascade="all, delete-orphan")
     jobs = relationship("MaintenanceJob", back_populates="repository", cascade="all, delete-orphan")
+    scans = relationship("RepositoryScan", back_populates="repository", cascade="all, delete-orphan")
+    dependencies = relationship("Dependency", back_populates="repository", cascade="all, delete-orphan")
+    readiness = relationship("RepositoryReadiness", back_populates="repository", uselist=False, cascade="all, delete-orphan")
+    action_logs = relationship("ActionLog", back_populates="repository", cascade="all, delete-orphan")

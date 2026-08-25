@@ -1,22 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { Repository } from '../types';
+import {
+  Repository,
+  RepositoryReadiness,
+  MaintenanceIssue,
+  ActionLog,
+} from '../types';
+import { ReadinessCard } from '../components/ReadinessCard';
+import { ScanProgressModal } from '../components/ScanProgressModal';
+import { IssueDetailModal } from '../components/IssueDetailModal';
 import {
   ArrowLeft,
   GitBranch,
   ExternalLink,
   RefreshCw,
-  ShieldCheck,
-  Lock,
   GitCommit,
   Clock,
   Play,
   Pause,
   AlertTriangle,
   FileCode2,
-  Wrench,
-  CheckCircle,
-  GitPullRequest,
+  CheckCircle2,
+  ShieldAlert,
+  Search,
+  ChevronRight,
+  Shield,
+  Loader2,
 } from 'lucide-react';
 
 interface RepositoryDetailPageProps {
@@ -29,16 +38,36 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
   onBack,
 }) => {
   const [repo, setRepo] = useState<Repository | null>(null);
+  const [readiness, setReadiness] = useState<RepositoryReadiness | null>(null);
+  const [issues, setIssues] = useState<MaintenanceIssue[]>([]);
+  const [logs, setLogs] = useState<ActionLog[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
 
-  const fetchRepo = async () => {
+  // Scan progress state
+  const [scanning, setScanning] = useState(false);
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  // Selected Issue for Detail Modal
+  const [selectedIssue, setSelectedIssue] = useState<MaintenanceIssue | null>(null);
+
+  const fetchRepoData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.getRepositoryDetail(repoId);
-      setRepo(data);
+      const [repoData, readinessData, issuesData, logsData] = await Promise.all([
+        api.getRepositoryDetail(repoId),
+        api.getReadiness(repoId),
+        api.getIssues(repoId),
+        api.getLogs(repoId),
+      ]);
+      setRepo(repoData);
+      setReadiness(readinessData);
+      setIssues(issuesData);
+      setLogs(logsData);
     } catch (err: any) {
       setError(err.message || 'Failed to load repository detail.');
     } finally {
@@ -47,7 +76,7 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
   };
 
   useEffect(() => {
-    fetchRepo();
+    fetchRepoData();
   }, [repoId]);
 
   const handleSync = async () => {
@@ -70,6 +99,29 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
       setRepo(updated);
     } catch (err: any) {
       alert(`Failed to update status: ${err.message}`);
+    }
+  };
+
+  const handleTriggerScan = async () => {
+    setScanning(true);
+    setScanError(null);
+    setIsScanModalOpen(true);
+
+    try {
+      await api.triggerScan(repoId);
+      // Refresh repository, readiness, issues, and logs after scan completion
+      await fetchRepoData();
+    } catch (err: any) {
+      setScanError(err.message || 'Repository scan failed.');
+    } finally {
+      setScanning(false);
+      // Fetch latest logs
+      try {
+        const latestLogs = await api.getLogs(repoId);
+        setLogs(latestLogs);
+      } catch {
+        // ignore
+      }
     }
   };
 
@@ -101,10 +153,11 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
   }
 
   const isPaused = repo.monitoring_status === 'paused';
+  const openIssuesCount = issues.filter((i) => i.status === 'OPEN').length;
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
-      {/* Back Navigation */}
+      {/* Top Header Navigation */}
       <div className="flex items-center justify-between">
         <button
           onClick={onBack}
@@ -115,13 +168,27 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
         </button>
 
         <div className="flex items-center gap-3">
+          {/* Scan Repository Primary Button */}
+          <button
+            onClick={handleTriggerScan}
+            disabled={scanning}
+            className="btn btn-primary text-xs flex items-center gap-1.5 shadow-lg shadow-blue-600/20"
+          >
+            {scanning ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Search className="w-3.5 h-3.5" />
+            )}
+            <span>{scanning ? 'Scanning Repository...' : 'Scan Repository'}</span>
+          </button>
+
           <button
             onClick={handleSync}
             disabled={syncing}
             className="btn btn-secondary text-xs flex items-center gap-1.5"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin text-blue-400' : ''}`} />
-            <span>Sync GitHub Metadata</span>
+            <span>Sync Metadata</span>
           </button>
 
           <button
@@ -136,12 +203,12 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
         </div>
       </div>
 
-      {/* Main Metadata Banner */}
+      {/* Main Repository Metadata Card */}
       <div className="p-6 rounded-xl bg-card border border-subtle space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-subtle pb-6">
           <div className="flex items-start gap-4">
             <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
-              <ShieldCheck className="w-7 h-7" />
+              <Shield className="w-7 h-7" />
             </div>
             <div>
               <div className="flex items-center gap-3">
@@ -154,7 +221,7 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
                 <span className="badge badge-gray uppercase">{repo.visibility}</span>
               </div>
               <p className="text-xs text-slate-400 mt-1 font-mono">
-                Repository ID: {repo.github_repo_id} • Connected to TALOS
+                Repository ID: {repo.github_repo_id} • {openIssuesCount} Open Vulnerabilities
               </p>
             </div>
           </div>
@@ -189,23 +256,27 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
           </div>
 
           <div className="p-3 rounded bg-slate-950/50 border border-subtle/70">
-            <span className="text-slate-500 block text-[11px] mb-1">CONNECTION STATUS</span>
-            <div className="flex items-center gap-1.5 text-emerald-400 font-semibold capitalize">
-              <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-              <span>{repo.connection_status}</span>
+            <span className="text-slate-500 block text-[11px] mb-1">LAST SCANNED</span>
+            <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
+              <Clock className="w-3.5 h-3.5 text-slate-500" />
+              <span>
+                {repo.last_scanned_at
+                  ? new Date(repo.last_scanned_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                  : 'Never'}
+              </span>
             </div>
           </div>
 
           <div className="p-3 rounded bg-slate-950/50 border border-subtle/70">
-            <span className="text-slate-500 block text-[11px] mb-1">LAST CHECKED</span>
-            <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
-              <Clock className="w-3.5 h-3.5 text-slate-500" />
-              <span>{new Date(repo.last_checked_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            <span className="text-slate-500 block text-[11px] mb-1">OPEN ISSUES</span>
+            <div className="flex items-center gap-1.5 font-bold text-amber-400">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>{openIssuesCount} Vulnerabilities</span>
             </div>
           </div>
         </div>
 
-        {/* Latest Commit Details Card */}
+        {/* Latest Commit Card */}
         <div className="p-4 rounded-lg bg-slate-950/60 border border-subtle space-y-2">
           <div className="flex items-center justify-between text-xs font-mono text-slate-400 border-b border-subtle/50 pb-2">
             <span className="flex items-center gap-2 text-slate-200 font-semibold">
@@ -214,7 +285,7 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
             </span>
             {repo.latest_commit?.sha && (
               <span className="bg-slate-800 px-2 py-0.5 rounded text-blue-300 border border-slate-700">
-                {repo.latest_commit.sha}
+                {repo.latest_commit.sha.substring(0, 7)}
               </span>
             )}
           </div>
@@ -237,99 +308,111 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
         </div>
       </div>
 
-      {/* Explicitly Labeled Future Functionality Modules */}
+      {/* Automation Readiness Assessment Card */}
+      <ReadinessCard readiness={readiness} />
+
+      {/* Detected Security & Maintenance Issues Section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between border-b border-subtle pb-3">
-          <h2 className="text-base font-semibold text-slate-200 font-mono">
-            MAINTENANCE PIPELINE MODULES
-          </h2>
-          <span className="badge badge-amber font-mono text-[11px]">
-            FUTURE MODULES (PHASES 2 - 5)
-          </span>
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-amber-400" />
+            <h2 className="text-base font-semibold text-slate-200 font-mono">
+              DETECTED SECURITY VULNERABILITIES ({issues.length})
+            </h2>
+          </div>
+
+          <button
+            onClick={handleTriggerScan}
+            disabled={scanning}
+            className="text-xs text-blue-400 hover:underline flex items-center gap-1"
+          >
+            <RefreshCw className={`w-3 h-3 ${scanning ? 'animate-spin' : ''}`} />
+            Run Security Scan
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Phase 2 Placeholder */}
-          <div className="p-5 rounded-lg bg-card/50 border border-dashed border-subtle space-y-3 opacity-80">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-400" />
-                <h3 className="text-sm font-semibold text-slate-300 font-mono">
-                  Detection Engine & Vulnerability Scan
-                </h3>
-              </div>
-              <span className="badge badge-gray text-[10px]">Phase 2</span>
+        {issues.length === 0 ? (
+          <div className="p-12 text-center border border-dashed border-subtle rounded-xl bg-slate-900/30 space-y-3">
+            <div className="w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center">
+              <CheckCircle2 className="w-5 h-5" />
             </div>
-            <p className="text-xs text-slate-500">
-              Scans repository dependencies and AST context for vulnerable packages, outdated locks, and broken build rules.
-            </p>
-            <div className="p-2 rounded bg-slate-950/60 border border-subtle text-[11px] text-slate-500 font-mono flex items-center gap-2">
-              <Lock className="w-3 h-3 text-slate-600" />
-              <span>Scanning module unavailable in Phase 1</span>
+            <div className="max-w-md mx-auto space-y-1">
+              <h3 className="text-sm font-semibold text-slate-200 font-mono">
+                No Open Vulnerabilities Detected
+              </h3>
+              <p className="text-xs text-slate-400">
+                Click <strong>Scan Repository</strong> to clone the codebase and analyze dependencies against the OSV advisory database.
+              </p>
             </div>
+            <button onClick={handleTriggerScan} className="btn btn-secondary text-xs">
+              Run Scan Now
+            </button>
           </div>
+        ) : (
+          <div className="space-y-2">
+            {issues.map((issue) => {
+              const sevColor =
+                issue.severity === 'CRITICAL'
+                  ? 'badge-amber'
+                  : issue.severity === 'HIGH'
+                  ? 'badge-amber'
+                  : 'badge-blue';
 
-          {/* Phase 3 Placeholder */}
-          <div className="p-5 rounded-lg bg-card/50 border border-dashed border-subtle space-y-3 opacity-80">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Wrench className="w-4 h-4 text-blue-400" />
-                <h3 className="text-sm font-semibold text-slate-300 font-mono">
-                  Patch Planning & Isolated Code Fix
-                </h3>
-              </div>
-              <span className="badge badge-gray text-[10px]">Phase 3</span>
-            </div>
-            <p className="text-xs text-slate-500">
-              Generates surgical code patches and dependency migrations in isolated temporary environments.
-            </p>
-            <div className="p-2 rounded bg-slate-950/60 border border-subtle text-[11px] text-slate-500 font-mono flex items-center gap-2">
-              <Lock className="w-3 h-3 text-slate-600" />
-              <span>Patch generation module unavailable in Phase 1</span>
-            </div>
-          </div>
+              return (
+                <div
+                  key={issue.id}
+                  className="p-4 rounded-lg bg-card border border-subtle hover:border-slate-700 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 font-mono text-xs"
+                >
+                  <div className="space-y-1 overflow-hidden pr-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`badge ${sevColor} text-[10px]`}>
+                        {issue.severity}
+                      </span>
+                      <span className="font-bold text-slate-200 text-sm">
+                        {issue.package_name}
+                      </span>
+                      <span className="text-slate-500">•</span>
+                      <span className="text-slate-400 text-[11px] truncate">
+                        {issue.title}
+                      </span>
+                    </div>
 
-          {/* Phase 4 Placeholder */}
-          <div className="p-5 rounded-lg bg-card/50 border border-dashed border-subtle space-y-3 opacity-80">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-emerald-400" />
-                <h3 className="text-sm font-semibold text-slate-300 font-mono">
-                  Verification Gate Sandbox
-                </h3>
-              </div>
-              <span className="badge badge-gray text-[10px]">Phase 4</span>
-            </div>
-            <p className="text-xs text-slate-500">
-              Runs dockerized builds, unit tests, regression suites, type checks, and security verification before PR delivery.
-            </p>
-            <div className="p-2 rounded bg-slate-950/60 border border-subtle text-[11px] text-slate-500 font-mono flex items-center gap-2">
-              <Lock className="w-3 h-3 text-slate-600" />
-              <span>Verification Sandbox module unavailable in Phase 1</span>
-            </div>
-          </div>
+                    <div className="flex items-center gap-4 text-slate-400 text-[11px] pt-1">
+                      <span>Installed: <strong className="text-amber-400">{issue.current_version}</strong></span>
+                      <span>Target Fix: <strong className="text-emerald-400">{issue.recommended_version}</strong></span>
+                      <span>Affected Files: <strong className="text-blue-400">{issue.affected_files?.length || 0}</strong></span>
+                      <span>Advisory: <strong>{issue.advisory_id || 'OSV'}</strong></span>
+                    </div>
+                  </div>
 
-          {/* Phase 5 Placeholder */}
-          <div className="p-5 rounded-lg bg-card/50 border border-dashed border-subtle space-y-3 opacity-80">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <GitPullRequest className="w-4 h-4 text-purple-400" />
-                <h3 className="text-sm font-semibold text-slate-300 font-mono">
-                  Automated Pull Request Delivery
-                </h3>
-              </div>
-              <span className="badge badge-gray text-[10px]">Phase 5</span>
-            </div>
-            <p className="text-xs text-slate-500">
-              Pushes isolated branches and opens review-ready pull requests containing verification evidence.
-            </p>
-            <div className="p-2 rounded bg-slate-950/60 border border-subtle text-[11px] text-slate-500 font-mono flex items-center gap-2">
-              <Lock className="w-3 h-3 text-slate-600" />
-              <span>PR delivery module unavailable in Phase 1</span>
-            </div>
+                  <button
+                    onClick={() => setSelectedIssue(issue)}
+                    className="btn btn-secondary text-xs py-1.5 px-3 shrink-0 flex items-center gap-1 self-start md:self-auto"
+                  >
+                    <span>Inspect Issue</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        )}
       </div>
+
+      {/* Real-time Scan Progress Modal */}
+      <ScanProgressModal
+        isOpen={isScanModalOpen}
+        onClose={() => setIsScanModalOpen(false)}
+        scanning={scanning}
+        logs={logs}
+        error={scanError}
+      />
+
+      {/* Issue Detail Panel/Modal */}
+      <IssueDetailModal
+        issue={selectedIssue}
+        onClose={() => setSelectedIssue(null)}
+      />
     </div>
   );
 };

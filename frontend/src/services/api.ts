@@ -4,6 +4,10 @@ import {
   Repository,
   GitHubRepoImportItem,
   DashboardStats,
+  RepositoryScan,
+  MaintenanceIssue,
+  RepositoryReadiness,
+  ActionLog,
 } from '../types';
 
 const API_BASE = '/api/v1';
@@ -32,7 +36,7 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
         errorMessage = typeof errData.detail === 'string' ? errData.detail : JSON.stringify(errData.detail);
       }
     } catch {
-      // ignore json parse error
+      // ignore parse error
     }
     throw new Error(errorMessage);
   }
@@ -74,4 +78,14 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ monitoring_status: status }),
     }),
+
+  // Phase 2: Scanning & Issues
+  triggerScan: (id: number) => request<RepositoryScan>(`/repositories/${id}/scan`, { method: 'POST' }),
+  getScans: (id: number) => request<RepositoryScan[]>(`/repositories/${id}/scans`),
+  getIssues: (id: number, statusFilter?: string) =>
+    request<MaintenanceIssue[]>(`/repositories/${id}/issues${statusFilter ? `?status_filter=${statusFilter}` : ''}`),
+  getIssueDetail: (repoId: number, issueId: number) =>
+    request<MaintenanceIssue>(`/repositories/${repoId}/issues/${issueId}`),
+  getReadiness: (id: number) => request<RepositoryReadiness | null>(`/repositories/${id}/readiness`),
+  getLogs: (id: number) => request<ActionLog[]>(`/repositories/${id}/logs`),
 };

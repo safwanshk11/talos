@@ -3,22 +3,38 @@ from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
 from app.db.session import Base
 
-# Note: These entities prepare the database schema for future phases
-# (Phase 2: Detection, Phase 3: Planning & Patch, Phase 4: Verification, Phase 5: PR Delivery).
-
 
 class MaintenanceIssue(Base):
     __tablename__ = "maintenance_issues"
 
     id = Column(Integer, primary_key=True, index=True)
     repository_id = Column(Integer, ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False)
+    
+    # Issue Fingerprint for Deduplication
+    fingerprint = Column(String, index=True, nullable=True)
+    
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
-    severity = Column(String, default="medium")  # low, medium, high, critical
-    category = Column(String, nullable=False)   # vulnerability, outdated_dependency, ci_failure, deprecated_api
-    status = Column(String, default="detected") # detected, investigating, patching, verified, resolved, escalated
+    severity = Column(String, default="MEDIUM")  # CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN
+    category = Column(String, default="vulnerability") # vulnerability, outdated_dependency, ci_failure, deprecated_api
+    status = Column(String, default="OPEN") # OPEN, ANALYZING, PATCHING, VERIFIED, DELIVERED, FAILED, ESCALATED, RESOLVED
+    
+    # Vulnerability Specific Metadata
+    package_name = Column(String, index=True, nullable=True)
+    current_version = Column(String, nullable=True)
+    affected_range = Column(String, nullable=True)
+    recommended_version = Column(String, nullable=True)
+    advisory_id = Column(String, nullable=True)
+    source = Column(String, default="npm-audit")  # npm-audit, osv, PyPI
+    
+    # List of relative file paths referencing this vulnerable package
+    affected_files = Column(JSON, nullable=True)
     details = Column(JSON, nullable=True)
 
+    detected_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_seen_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -81,13 +97,18 @@ class ActionLog(Base):
     __tablename__ = "action_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    job_id = Column(Integer, ForeignKey("maintenance_jobs.id", ondelete="CASCADE"), nullable=False)
+    repository_id = Column(Integer, ForeignKey("repositories.id", ondelete="CASCADE"), nullable=True)
+    job_id = Column(Integer, ForeignKey("maintenance_jobs.id", ondelete="CASCADE"), nullable=True)
+    scan_id = Column(Integer, ForeignKey("repository_scans.id", ondelete="CASCADE"), nullable=True)
+    
     timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     step = Column(String, nullable=False) # WATCH, DETECT, UNDERSTAND, PLAN, PATCH, VERIFY, DELIVER, ESCALATE
     message = Column(Text, nullable=False)
     level = Column(String, default="INFO")
 
     job = relationship("MaintenanceJob", back_populates="action_logs")
+    scan = relationship("RepositoryScan", back_populates="action_logs")
+    repository = relationship("Repository", back_populates="action_logs")
 
 
 class PullRequest(Base):

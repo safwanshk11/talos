@@ -1,9 +1,14 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy import desc
 
 from app.db.session import get_db
 from app.models.user import User
+from app.models.future import MaintenanceIssue, ActionLog
+from app.models.scan import RepositoryScan
+from app.models.readiness import RepositoryReadiness
 from app.api.deps import get_current_user
 from app.schemas.repository import (
     RepositoryResponse,
@@ -13,8 +18,15 @@ from app.schemas.repository import (
     GitHubRepoImportItem,
     LatestCommitSchema
 )
+from app.schemas.scan import (
+    RepositoryScanResponse,
+    MaintenanceIssueResponse,
+    RepositoryReadinessResponse,
+    ActionLogResponse
+)
 from app.services.repository_service import RepositoryService
 from app.services.github_service import GitHubService
+from app.services.scanner_service import ScannerService
 
 router = APIRouter()
 
@@ -52,7 +64,6 @@ async def list_available_github_repositories(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Fetch GitHub repositories accessible by user for importing into TALOS."""
     token = await RepositoryService.get_user_github_token(db, current_user.id)
     gh_repos = await GitHubService.fetch_user_repositories(token)
 
@@ -85,7 +96,6 @@ async def list_repositories(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """List all repositories connected to TALOS by current user."""
     repos = await RepositoryService.list_connected_repositories(db, current_user.id)
     return [_to_repository_response(r) for r in repos]
 
@@ -95,7 +105,6 @@ async def get_dashboard_stats(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Fetch dashboard summary metrics backed by real database state."""
     stats = await RepositoryService.get_dashboard_stats(db, current_user.id)
     return DashboardStatsResponse(**stats)
 
@@ -106,7 +115,6 @@ async def connect_repository(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Connect a GitHub repository to TALOS for monitoring."""
     repo = await RepositoryService.connect_repository(
         db=db,
         user_id=current_user.id,
@@ -122,7 +130,6 @@ async def get_repository_detail(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get detailed information for a single connected repository."""
     repo = await RepositoryService.get_repository_by_id(db, current_user.id, repository_id)
     if not repo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repository not found.")
@@ -135,7 +142,6 @@ async def sync_repository(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Re-sync repository metadata and latest commit from GitHub."""
     repo = await RepositoryService.sync_repository_metadata(db, current_user.id, repository_id)
     return _to_repository_response(repo)
 
@@ -147,8 +153,91 @@ async def toggle_monitoring(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Toggle monitoring status (active / paused)."""
     repo = await RepositoryService.toggle_monitoring_status(
         db, current_user.id, repository_id, payload.monitoring_status
     )
     return _to_repository_response(repo)
+
+
+# ==========================================
+# PHASE 2: SCAN & ISSUE ENDPOINTS
+# ==========================================
+
+@router.post("/{repository_id}/scan", response_model=RepositoryScanResponse)
+async def trigger_repository_scan(
+    repository_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Trigger a repository scan for vulnerabilities and readiness."""
+    repo = await RepositoryService.get_repository_by_id(db, current_user.id, repository_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found.")
+
+    token = await RepositoryService.get_user_github_token(db, current_user.id)
+    scan = await ScannerService.run_repository_scan(db, current_user.id, repository_id, token)
+    return scan
+
+
+@router.get("/{repository_id}/scans", response_model=List[RepositoryScanResponse])
+async def list_repository_scans(
+    repository_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(RepositoryScan).where(RepositoryScan.repository_id == repository_id).order_by(desc(RepositoryScan.started_at))
+    res = await db.execute(stmt)
+    return res.scalars().all()
+
+
+@router.get("/{repository_id}/issues", response_model=List[MaintenanceIssueResponse])
+async def list_repository_issues(
+    repository_id: int,
+    status_filter: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(MaintenanceIssue).where(MaintenanceIssue.repository_id == repository_id)
+    if status_filter:
+        stmt = stmt.where(MaintenanceIssue.status == status_filter)
+    stmt = stmt.order_by(desc(MaintenanceIssue.detected_at))
+    res = await db.execute(stmt)
+    return res.scalars().all()
+
+
+@router.get("/{repository_id}/issues/{issue_id}", response_model=MaintenanceIssueResponse)
+async def get_issue_detail(
+    repository_id: int,
+    issue_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(MaintenanceIssue).where(MaintenanceIssue.id == issue_id, MaintenanceIssue.repository_id == repository_id)
+    res = await db.execute(stmt)
+    issue = res.scalars().first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found.")
+    return issue
+
+
+@router.get("/{repository_id}/readiness", response_model=Optional[RepositoryReadinessResponse])
+async def get_repository_readiness(
+    repository_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(RepositoryReadiness).where(RepositoryReadiness.repository_id == repository_id)
+    res = await db.execute(stmt)
+    return res.scalars().first()
+
+
+@router.get("/{repository_id}/logs", response_model=List[ActionLogResponse])
+async def get_repository_logs(
+    repository_id: int,
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(ActionLog).where(ActionLog.repository_id == repository_id).order_by(desc(ActionLog.timestamp)).limit(limit)
+    res = await db.execute(stmt)
+    return res.scalars().all()
