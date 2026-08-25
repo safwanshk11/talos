@@ -1,9 +1,11 @@
 # TALOS — Autonomous Repository Maintenance System
 
-[![Phase 3 Complete](https://img.shields.io/badge/Phase%203-Planning%20%26%20Patch%20Generation-blue.svg)](#)
+[![Phase 4 Complete](https://img.shields.io/badge/Phase%204-Verification%20Engine-blue.svg)](#)
 [![Stack](https://img.shields.io/badge/Tech%20Stack-FastAPI%20%7C%20React%20%7C%20PostgreSQL%20%7C%20Docker-brightgreen.svg)](#)
 
 TALOS is an autonomous repository maintenance system. It continuously monitors software repositories, detects routine maintenance problems, understands what needs to change, creates isolated fixes, verifies those fixes through real engineering checks, and delivers review-ready pull requests.
+
+See **[PHASES.md](PHASES.md)** for the full phase-by-phase build history — what each phase delivered, key files, how it was verified, and known limitations.
 
 ---
 
@@ -18,26 +20,20 @@ WATCH  ──►  DETECT  ──►  UNDERSTAND  ──►  PLAN  ──►  PAT
 
 ---
 
-## Current Status: Phase 3 Complete
+## Current Status: Phase 4 Complete
 
-Phase 3 introduces TALOS's first AI reasoning capability — **Planning & Patch Generation** — for the vulnerable-dependency-upgrade workflow:
+Phase 4 is TALOS's core differentiator: **AI-generated code is untrusted until verified with real engineering checks.** A `PATCH_READY` patch from Phase 3 is never assumed to work — it's proven, or rejected, by deterministic evidence.
 
-1. **Pluggable AI Provider**: A provider-agnostic `AIProvider` interface (`analyze_problem` / `generate_plan` / `generate_patch`) with two implementations — **Ollama** (local dev, e.g. `qwen2.5:7b`) and **Gemini** (deployment). Structured output is JSON-schema validated against Pydantic models, with a bounded retry budget before failing cleanly.
-2. **Targeted Context Engine**: Builds a size-bounded "Maintenance Context Package" from Phase 2's own findings (the issue, manifest excerpt, affected files, lockfile presence, related tests, readiness signals) instead of sending the model the whole repository — every section records *why* it was included.
-3. **Structured, Risk-Classified Planning**: The model produces a machine-validated plan (summary, root cause, target version, files to modify, actions, verification recommendations, risk). Risk is classified `LOW` / `MEDIUM` / `HIGH` — **HIGH risk always escalates instead of patching**.
-4. **Isolated Workspace & TALOS Branch**: Each attempt clones into a disposable workspace and creates a `talos/fix-<issue>-<slug>` branch. The repository's primary branch is never touched, and nothing is ever pushed.
-5. **Deterministic Dependency Updates**: The AI decides *what* needs to change; an actual package manager (`npm install pkg@version --package-lock-only`, or a PyPI-resolved pin for `requirements.txt`) performs the edit — TALOS never asks a model to hand-invent a lockfile.
-6. **Patch Safety Enforcement**: Every model-proposed file edit is validated against path traversal, protected paths (`.git`, `node_modules`, etc.), file-size limits, and a modification-count cap before it touches disk.
-7. **Real Git Diffs & Patch History**: A genuine `git diff` is generated and persisted per `PatchAttempt` — provider/model used, plan, analysis, files changed, status, and failure reason are all recorded. Prior attempts are never overwritten.
-8. **Extended Lifecycle**: `OPEN → ANALYZING → PLANNING → PLANNED → SANDBOXING → PATCHING → PATCH_READY`, with `FAILED` / `ESCALATED` exits. Nothing is ever marked `VERIFIED` yet — that's Phase 4. The UI is explicit: *"Patch prepared. Awaiting verification."*
+1. **Real Docker Sandbox Isolation**: Verification runs in disposable `--rm` containers launched via docker-outside-of-docker (the backend talks to the *host's* Docker engine through a mounted socket). No TALOS secret (`GITHUB_PERSONAL_ACCESS_TOKEN`, `GEMINI_API_KEY`, `DATABASE_URL`, `SECRET_KEY`) is ever forwarded into the sandbox — `docker run` is never passed `-e`/`--env-file`. The sandbox runs on Docker's default bridge network, isolated from the compose network TALOS's own services use, with memory/CPU/pids/timeout limits.
+2. **Repository-Specific Verification Plan**: `VerificationPlanBuilder` reads the patched workspace's actual `package.json` scripts — never invents a command that doesn't exist. Pipeline: `INSTALL → BUILD → TYPECHECK → LINT → TEST → SECURITY_AUDIT → VULNERABILITY_RESCAN`, with fail-fast on any required check that doesn't apply.
+3. **The Original Vulnerability Is Re-Checked, Not Assumed Fixed**: after the sandbox checks run, TALOS reads the resolved dependency version out of the patched lockfile and re-queries the OSV API for the *original* advisory ID. A patch is only `VERIFIED` if that advisory is confirmed gone — passing build/tests alone is not enough.
+4. **Evidence Over Confidence**: every check is stored and shown as real `PASSED` / `FAILED` / `SKIPPED` / `TIMED_OUT` with exit code, duration, and output excerpts — never an AI confidence score, and never a fabricated count (`84/84 tests`) unless a framework genuinely reported one. A failed *optional* check (e.g. an unrelated transitive-dependency security audit) is shown as failed, not hidden, even when it doesn't block the overall verdict.
+5. **Full Verification History**: `VerificationRun` / `VerificationCheck` records are preserved per attempt, never overwritten — `VERIFIED` and `VERIFICATION_FAILED` are both permanent, inspectable evidence trails.
 
-Phase 2 (**Repository Intelligence & Detection**, still fully active) provides the findings Phase 3 acts on:
-- Isolated repository cloning & dependency parsing (`package.json`, `requirements.txt`, lockfiles)
-- Deterministic vulnerability detection via the OSV API (`https://api.osv.dev`)
-- SHA-256 issue deduplication & lifecycle (`last_seen_at`, auto-`RESOLVED`)
-- Source-code import usage finder (`.ts`, `.js`, `.tsx`, `.jsx`, `.py`)
-- Automation readiness assessment (`HIGH` / `MEDIUM` / `LOW`)
-- Action Ledger & live operations dashboard (`WATCH`, `DETECT`, `UNDERSTAND`, `PLAN`, `PATCH`, `VERIFY`, `DELIVER`, `ESCALATE`)
+Earlier phases remain fully active and are what Phase 4 builds on — see **[PHASES.md](PHASES.md)** for the complete build history, architecture notes, and known limitations of every phase:
+- **Phase 1** — GitHub integration, repository connection & dashboard
+- **Phase 2** — repository scanning, OSV vulnerability detection, automation readiness
+- **Phase 3** — AI-driven planning & patch generation (Ollama / Gemini), isolated branches, real diffs
 
 ---
 
@@ -48,6 +44,7 @@ Phase 2 (**Repository Intelligence & Detection**, still fully active) provides t
 * **AI Providers**: Ollama (local dev) or Gemini (deployment) behind a pluggable `AIProvider` interface
 * **Database**: PostgreSQL 16
 * **Infrastructure**: Docker & Docker Compose (Node.js/npm included in the backend image for deterministic dependency upgrades)
+* **Verification Sandbox**: docker-outside-of-Docker — the backend launches isolated, ephemeral containers on the host's own Docker engine to run Phase 4 checks; it never executes untrusted repository code in-process
 
 ---
 
@@ -58,7 +55,8 @@ talos/
 ├── frontend/             # Vite + React + TypeScript Dashboard
 │   ├── src/
 │   │   ├── components/   # Sidebar, Header, MetricsOverview, RepositoryCard, ConnectGithubModal,
-│   │   │                 # IssueDetailModal (Prepare Fix pipeline), DiffViewer
+│   │   │                 # IssueDetailModal (fix pipeline), DiffViewer, VerificationReport,
+│   │   │                 # RemoveRepositoryModal
 │   │   ├── pages/        # DashboardPage, RepositoryDetailPage, ActivityPage, SettingsPage
 │   │   ├── services/     # Typed API Client
 │   │   ├── types/        # TypeScript Interfaces
@@ -78,12 +76,14 @@ talos/
 │   │       ├── git_workspace_service.py  # Isolated clone / branch / commit / diff
 │   │       ├── dependency_updater_service.py  # Deterministic npm/pip upgrades
 │   │       ├── patch_safety.py           # Path traversal / size / count enforcement
+│   │       ├── verification/             # Phase 4: sandbox execution, plan builder, orchestrator
 │   │       ├── scanner_service.py        # Phase 2 scan pipeline
 │   │       └── github_service.py         # GitHub REST API client
 │   └── Dockerfile
-├── worker/               # Background Worker Architecture (reserved for Phase 4+)
+├── worker/               # Background Worker Architecture (reserved for Phase 5+)
 ├── docker-compose.yml    # Orchestration for PostgreSQL, Backend, Frontend
 ├── .env.example          # Environment Variables Template
+├── PHASES.md             # Full phase-by-phase build history
 └── README.md
 ```
 
@@ -112,6 +112,12 @@ talos/
    - **TALOS Operations Dashboard**: [http://localhost:3000](http://localhost:3000)
    - **FastAPI Interactive Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
    - **API Health Check**: [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)
+
+> **Phase 4 requirement**: the backend mounts `/var/run/docker.sock` to launch isolated
+> verification sandboxes on your host's own Docker engine (docker-outside-of-Docker) —
+> Docker Desktop (or an equivalent daemon) must be running before `docker compose up`.
+> No extra setup is needed beyond that; `docker-compose.yml` already wires the socket
+> and the shared `talos_workspaces` volume.
 
 ---
 
@@ -172,3 +178,4 @@ To test the complete flow:
 6. Click **View** to inspect real GitHub metadata on the Repository Detail Page.
 7. Click **Scan Repository** to run the Phase 2 pipeline — dependencies, OSV vulnerability findings, and readiness score populate for real.
 8. Open a detected issue and click **Prepare Fix** to run the Phase 3 pipeline — TALOS gathers context, analyzes the issue, generates a risk-classified plan, creates an isolated branch, applies a deterministic dependency upgrade, and shows the real generated diff. The repository's primary branch is never touched.
+9. Once the patch is `PATCH_READY`, click **Run Verification** to run the Phase 4 pipeline — TALOS installs dependencies, builds, lints, tests, runs a security audit, and re-queries OSV to confirm the original advisory is actually gone, all inside an isolated sandbox container with no TALOS secrets. The report shows every check's real PASS/FAIL/SKIPPED — the patch is marked `VERIFIED` only if it earns it.
