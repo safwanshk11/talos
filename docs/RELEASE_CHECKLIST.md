@@ -1,10 +1,16 @@
 # TALOS Release Checklist
 
-Status as of Phase 8 (Production Hardening & Deployment). Checked items were
-verified live against the running stack during Phase 8, not just asserted —
-see `PHASES.md`'s Phase 8 entry for exactly how each was verified. Unchecked
-items require action before a real deployment or a live demo — each has a
-reason, not just a checkbox.
+Status as of Phase 9 (Final Demo, Submission & Ship). Checked items were
+verified live against the running stack, not just asserted — see `PHASES.md`'s
+Phase 8/9 entries for exactly how each was verified. Unchecked items require
+action before a real deployment or a live demo — each has a reason, not just
+a checkbox.
+
+**Phase 9 update:** a real authentication bypass was found and fixed —
+`get_current_user` previously accepted any request, even with no token, as a
+default local user. Now enforced correctly in `ENVIRONMENT=production`
+(hard `401`), unchanged in development. See the Security section below and
+`PHASES.md`'s Phase 9 entry for the live verification.
 
 ## Environment & Configuration
 
@@ -89,25 +95,29 @@ reason, not just a checkbox.
 
 ## Demo Readiness
 
-- [ ] **No dedicated demo repository exists yet.** Needs a small, deterministic
-      JS/TS (or Python) repo with a known vulnerable dependency and a known fix,
-      owned by the presenter's GitHub account.
-- [ ] **No demo reset script exists yet** — write one once the demo repository
-      exists (reset default branch, remove old `talos/fix-*` branches, close
-      stale demo PRs). Deliberately not built speculatively against a
-      repository that doesn't exist.
-- [ ] **No demo preflight script exists yet** — same reasoning; a preflight
-      check needs a real target to check against. In the meantime, the
-      manual equivalent is: `curl http://localhost:8000/api/v1/health` returns
-      `200`, `docker compose ps` shows both services `healthy`, Ollama/Gemini
-      reachable per `AI_PROVIDER`, and the demo repository is connected.
+*(Updated in Phase 9 — the items below were incorrectly marked as blocked in Phase 8, which hadn't checked whether a demo repository already existed. It did.)*
+
+- [x] **Dedicated demo repository exists and has real history**: `safwanshk11/talos-demo-vulnerable-app` — 29 real `MaintenanceJob` runs, 3 real pull requests, all merged by a human. See `PHASES.md`'s Phase 9 entry.
+- [x] **Demo reset procedure documented**: `docs/DEMO_RESET.md` — how to re-arm the demo repository with a fresh, live-detectable vulnerability using dependency versions already proven through the full pipeline. Not automated as a TALOS feature, deliberately.
+- [x] **Demo preflight script exists and passes**: `scripts/demo-preflight.sh` — run live, reports `READY` (8/8 checks) against the current stack.
 - [ ] `GITHUB_WEBHOOK_SECRET` + a public URL (e.g. ngrok) configured, if the
-      demo includes the autonomous/webhook-triggered flow.
+      demo includes the autonomous/webhook-triggered flow. Not currently configured.
+- [x] **Demo repository re-armed with user confirmation**: `lodash@4.17.15`
+      introduced (commit `0d4772b`) — deliberately a different package from
+      the `axios`/`express` already fixed in merged PRs `#1`-`#3`, per user
+      feedback to keep each demo genuinely new rather than a repeat. `axios`
+      restored to latest. A live scan confirmed 6 fresh real OSV advisories
+      on `lodash`. Left at the detected stage — Decide → Patch → Verify →
+      Deliver intentionally not pre-consumed, so it's available to actually
+      perform live.
 
 ## Documentation
 
 - [x] `README.md` updated: Safety Model, Deployment, Known Limitations, AI
-      Disclosure sections; environment variable table current.
-- [x] `PHASES.md` updated with the full Phase 8 audit findings, fixes, and
-      explicit known limitations.
+      Disclosure sections; environment variable table current; Mermaid
+      architecture/workflow diagrams; screenshots; Phase 9 status.
+- [x] `PHASES.md` updated with the full Phase 8 and Phase 9 audit findings,
+      fixes, and explicit known limitations.
+- [x] `docs/SUBMISSION.md` — pitch, demo script, judge Q&A, submission copy.
+- [x] `LICENSE` — MIT.
 - [x] This checklist.

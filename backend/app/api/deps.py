@@ -13,7 +13,14 @@ async def get_current_user(
     authorization: Optional[str] = Header(None),
     db: AsyncSession = Depends(get_db)
 ) -> User:
-    """Dependency to retrieve or auto-create local default user."""
+    """Dependency to retrieve the authenticated user.
+
+    In development, a missing/invalid token falls back to an auto-created
+    local default user so the app is immediately usable without a login
+    round-trip. In production this fallback is a real vulnerability — every
+    endpoint behind this dependency would be reachable with zero credentials
+    — so it's disabled there: a missing/invalid token is a hard 401. Found
+    and fixed in the Phase 9 final safety audit."""
     user_id: Optional[int] = None
 
     if authorization and authorization.startswith("Bearer "):
@@ -33,7 +40,10 @@ async def get_current_user(
         if user:
             return user
 
-    # Fallback to local default user for local dev seamless operation
+    if settings.ENVIRONMENT.lower() == "production":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated.")
+
+    # Fallback to local default user for local dev seamless operation only.
     stmt = select(User).where(User.username == "talos_developer")
     res = await db.execute(stmt)
     user = res.scalars().first()

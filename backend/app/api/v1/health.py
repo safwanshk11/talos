@@ -22,7 +22,7 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         "status": "ok" if db_healthy else "degraded",
         "service": "TALOS Core API",
         "database": db_status,
-        "version": "1.0.0-phase8",
+        "version": "1.0.0-phase9",
         # Read-only traceability — never expose secrets (GEMINI_API_KEY etc.) here.
         "ai_provider": settings.AI_PROVIDER,
         "ai_model": settings.AI_MODEL,

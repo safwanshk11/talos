@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Outlet, useLocation, useOutletContext } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
@@ -21,6 +21,7 @@ export function useAppShell() {
 
 export const AppShell: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [ghStatus, setGhStatus] = useState<GitHubConnectionStatus | null>(null);
@@ -30,8 +31,15 @@ export const AppShell: React.FC = () => {
       const [uData, statusData] = await Promise.all([api.getMe(), api.getGitHubStatus()]);
       setUser(uData);
       setGhStatus(statusData);
-    } catch {
-      // API fallback handles local dev mode seamlessly
+    } catch (err: any) {
+      // In local development the backend auto-provisions a default user, so
+      // this only fires on a genuine auth failure (e.g. ENVIRONMENT=production
+      // with no/invalid session) — send the visitor to log in rather than
+      // rendering an empty shell as if they were signed in.
+      if (String(err?.message || '').includes('401')) {
+        localStorage.removeItem('talos_token');
+        navigate('/login', { replace: true });
+      }
     }
   };
 
