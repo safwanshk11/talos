@@ -32,13 +32,13 @@ const PIPELINE_STEPS: { key: string; label: string; statuses: string[] }[] = [
   { key: 'analyzing', label: 'ANALYZING', statuses: ['analyzing'] },
   { key: 'planning', label: 'PLANNING', statuses: ['planning', 'planned'] },
   { key: 'sandboxing', label: 'CREATING WORKSPACE', statuses: ['sandboxing'] },
-  { key: 'patching', label: 'PATCHING', statuses: ['patching', 'patch_ready'] },
+  { key: 'patching', label: 'PATCHING', statuses: ['patching', 'patch_ready', 'resolved'] },
   { key: 'verifying', label: 'VERIFYING', statuses: ['verifying', 'verified', 'verification_failed'] },
   { key: 'delivering', label: 'DELIVERING', statuses: ['delivering', 'delivered', 'delivery_failed'] },
 ];
 
 const STEP_ORDER = ['analyzing', 'planning', 'sandboxing', 'patching', 'verifying', 'delivering'];
-const TERMINAL_JOB_STATUSES = ['patch_ready', 'verified', 'verification_failed', 'delivered', 'delivery_failed', 'failed', 'escalated'];
+const TERMINAL_JOB_STATUSES = ['patch_ready', 'verified', 'verification_failed', 'delivered', 'delivery_failed', 'resolved', 'failed', 'escalated'];
 
 export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue, repoId, onClose, onJobUpdated }) => {
   const [job, setJob] = useState<MaintenanceJob | null>(null);
@@ -380,6 +380,20 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue, repoI
               </div>
             )}
 
+            {job?.status === 'resolved' && (
+              <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-start gap-2 font-mono">
+                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-semibold">ALREADY RESOLVED — NO PATCH NEEDED</div>
+                  <div className="text-slate-300 mt-1">
+                    TALOS re-checked the repository's default branch and confirmed (via a real OSV re-query) that
+                    this advisory is no longer present — most likely already fixed directly on the default branch.
+                    No patch was generated because none was needed.
+                  </div>
+                </div>
+              </div>
+            )}
+
             {verifyError && (
               <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-2 font-mono">
                 <XCircle className="w-4 h-4 shrink-0" />
@@ -569,6 +583,11 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue, repoI
               <>
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
                 <span>Patch untrusted — verification not yet run</span>
+              </>
+            ) : job?.status === 'resolved' ? (
+              <>
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Already resolved on the default branch — confirmed via OSV, not assumed</span>
               </>
             ) : (
               <>

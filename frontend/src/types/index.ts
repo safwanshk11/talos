@@ -173,6 +173,7 @@ export type MaintenanceJobStatus =
   | 'delivering'
   | 'delivered'
   | 'delivery_failed'
+  | 'resolved'
   | 'failed'
   | 'escalated';
 

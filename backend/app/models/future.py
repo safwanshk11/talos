@@ -52,7 +52,8 @@ class MaintenanceJob(Base):
     issue_id = Column(Integer, ForeignKey("maintenance_issues.id", ondelete="CASCADE"), nullable=True)
     # queued, analyzing, planning, planned, sandboxing, patching, patch_ready,
     # verifying, verified, verification_failed, delivering, delivered,
-    # delivery_failed, failed, escalated
+    # delivery_failed, resolved (no patch needed — already fixed upstream),
+    # failed, escalated
     status = Column(String, default="queued")
     risk_level = Column(String, nullable=True) # low, medium, high
     risk_reason = Column(Text, nullable=True)

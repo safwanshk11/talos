@@ -187,6 +187,10 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
 
   const isPaused = repo.monitoring_status === 'paused';
   const openIssuesCount = issues.filter((i) => i.status === 'OPEN').length;
+  // RESOLVED (no patch needed / no longer detected) and DELIVERED (already a real
+  // PR — tracked in the Pull Requests section below) are closed out; the
+  // vulnerabilities list only needs to show issues still requiring TALOS action.
+  const activeIssues = issues.filter((i) => i.status !== 'RESOLVED' && i.status !== 'DELIVERED');
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
@@ -365,7 +369,7 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
           <div className="flex items-center gap-2">
             <ShieldAlert className="w-4 h-4 text-amber-400" />
             <h2 className="text-base font-semibold text-slate-200 font-mono">
-              DETECTED SECURITY VULNERABILITIES ({issues.length})
+              DETECTED SECURITY VULNERABILITIES ({activeIssues.length})
             </h2>
           </div>
 
@@ -379,7 +383,7 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
           </button>
         </div>
 
-        {issues.length === 0 ? (
+        {activeIssues.length === 0 ? (
           <div className="p-12 text-center border border-dashed border-subtle rounded-xl bg-slate-900/30 space-y-3">
             <div className="w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center">
               <CheckCircle2 className="w-5 h-5" />
@@ -398,7 +402,7 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
           </div>
         ) : (
           <div className="space-y-2">
-            {issues.map((issue) => {
+            {activeIssues.map((issue) => {
               const sevColor =
                 issue.severity === 'CRITICAL'
                   ? 'badge-amber'

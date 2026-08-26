@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -16,6 +17,7 @@ from app.models.future import MaintenanceIssue, MaintenanceJob, PatchAttempt, Ac
 from app.services.context_service import ContextEngine
 from app.services.git_workspace_service import GitWorkspaceService, GitWorkspaceError
 from app.services.dependency_updater_service import DependencyUpdaterService, DependencyUpdateError
+from app.services.scanner_service import ScannerService
 from app.services.patch_safety import (
     validate_and_resolve,
     enforce_content_limit,
@@ -221,6 +223,16 @@ class PatchService:
                 raise PatchServiceError(f"Commit failed: {exc}") from exc
 
             if not commit_sha:
+                # The update command ran but produced no diff — the freshly cloned default
+                # branch already has the package at a version that satisfies the target.
+                # Confirm that with a real OSV re-query (not an assumption) before treating
+                # it as resolved: someone may have fixed this directly on the default branch
+                # since the issue was first detected (e.g. a manually merged fix).
+                if dependency:
+                    still_vulnerable = await PatchService._is_still_vulnerable(workspace_path, issue, dependency.ecosystem)
+                    if still_vulnerable is False:
+                        await PatchService._resolve_already_fixed(db, job, issue, repository_id)
+                        return job
                 raise PatchServiceError("No file changes were produced; nothing to patch.")
 
             diff_text = GitWorkspaceService.diff_against_sha(workspace_path, base_sha)
@@ -291,6 +303,78 @@ class PatchService:
             DependencyUpdaterService.update_pip_requirement(workspace_path, dependency.name, target_version)
         else:
             raise PatchServiceError(f"Unsupported ecosystem for deterministic update: {dependency.ecosystem}")
+
+    @staticmethod
+    async def _is_still_vulnerable(workspace_path: str, issue: MaintenanceIssue, ecosystem: str) -> Optional[bool]:
+        """Real OSV re-query against the version actually installed in the freshly
+        cloned workspace. Returns None (unknown) rather than guessing if the
+        version can't be determined or the issue has no advisory to check."""
+        if not issue.package_name or not issue.advisory_id:
+            return None
+        resolved_version = PatchService._resolve_installed_version(workspace_path, issue.package_name, ecosystem)
+        if not resolved_version:
+            return None
+        osv_ecosystem = {"npm": "npm", "pip": "PyPI"}.get(ecosystem, "npm")
+        results = await ScannerService.query_osv_vulnerabilities([
+            {"package": {"name": issue.package_name, "ecosystem": osv_ecosystem}, "version": resolved_version}
+        ])
+        vulns = results[0].get("vulns", []) if results else []
+        advisory_ids = {v.get("id") for v in vulns if v.get("id")}
+        return issue.advisory_id in advisory_ids
+
+    @staticmethod
+    def _resolve_installed_version(workspace_path: str, package_name: str, ecosystem: str) -> Optional[str]:
+        if ecosystem == "npm":
+            lock_path = os.path.join(workspace_path, "package-lock.json")
+            if os.path.isfile(lock_path):
+                try:
+                    with open(lock_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    entry = data.get("packages", {}).get(f"node_modules/{package_name}")
+                    if entry and entry.get("version"):
+                        return entry["version"]
+                    dep_entry = data.get("dependencies", {}).get(package_name)
+                    if dep_entry and dep_entry.get("version"):
+                        return dep_entry["version"]
+                except Exception:
+                    pass
+            pkg_path = os.path.join(workspace_path, "package.json")
+            if os.path.isfile(pkg_path):
+                try:
+                    with open(pkg_path, "r", encoding="utf-8") as f:
+                        pkg = json.load(f)
+                    raw = (pkg.get("dependencies", {}) or {}).get(package_name) or (pkg.get("devDependencies", {}) or {}).get(package_name)
+                    if raw:
+                        return re.sub(r"^[\^~>=]+", "", str(raw))
+                except Exception:
+                    pass
+        elif ecosystem == "pip":
+            req_path = os.path.join(workspace_path, "requirements.txt")
+            if os.path.isfile(req_path):
+                with open(req_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        stripped = line.strip()
+                        if stripped.lower().startswith(package_name.lower() + "=="):
+                            return stripped.split("==", 1)[1].strip()
+        return None
+
+    @staticmethod
+    async def _resolve_already_fixed(db, job: MaintenanceJob, issue: MaintenanceIssue, repository_id: int):
+        """The vulnerability this issue was opened for is confirmed gone from the
+        repository's current default branch (verified via a real OSV re-query, not
+        assumed) — most likely fixed directly on the default branch since detection.
+        No patch was needed, so none was fabricated; the issue is closed with the
+        same RESOLVED status Phase 2's scan dedup already uses for this exact case."""
+        job.status = "resolved"
+        job.completed_at = datetime.now(timezone.utc)
+        issue.status = "RESOLVED"
+        issue.resolved_at = datetime.now(timezone.utc)
+        await db.commit()
+        await PatchService._log(
+            db, job.id, repository_id, "PATCH",
+            f"No patch needed: {issue.package_name} on the default branch already resolves "
+            f"advisory {issue.advisory_id} (confirmed via OSV re-query). Issue marked RESOLVED.",
+        )
 
     @staticmethod
     def _changed_files(workspace_path: str) -> List[str]:
