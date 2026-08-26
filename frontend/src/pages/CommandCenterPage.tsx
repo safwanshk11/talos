@@ -9,7 +9,7 @@ import { useCrossRepoData } from '../hooks/useCrossRepoData';
 import { useDashboardStats } from '../hooks/useDashboardStats';
 import { usePolling } from '../hooks/usePolling';
 import { ACTIVE_STATUSES, ATTENTION_STATUSES } from '../lib/statusGroups';
-import { AlertTriangle, GitPullRequest, CheckCircle2, ChevronRight, ExternalLink, Loader2, ArrowRight, Clock, Radar } from 'lucide-react';
+import { AlertTriangle, AlertCircle, GitPullRequest, CheckCircle2, ChevronRight, ExternalLink, Loader2, ArrowRight, Clock, Radar } from 'lucide-react';
 
 const POLL_INTERVAL_MS = 8000;
 const SCHEDULE_HOURS: Record<string, number> = { daily: 24, weekly: 24 * 7 };
@@ -36,7 +36,7 @@ function timeUntil(target: Date): string {
 export const CommandCenterPage: React.FC = () => {
   const navigate = useNavigate();
   const { stats, loading: statsLoading, reload: reloadStats } = useDashboardStats();
-  const { repositories, issues, pullRequests, logs, loading, reload } = useCrossRepoData();
+  const { repositories, issues, pullRequests, logs, loading, error, reload } = useCrossRepoData();
 
   const activeOperations = useMemo(
     () => issues.filter((i) => ACTIVE_STATUSES.includes(i.status)),
@@ -94,6 +94,16 @@ export const CommandCenterPage: React.FC = () => {
         title="Command Center"
         subtitle="Real-time overview of autonomous repository operations."
       />
+
+      {error && (
+        <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-5 h-5 shrink-0" />
+            <span>{error}</span>
+          </div>
+          <button onClick={reload} className="btn btn-secondary text-xs py-1 px-2.5">Retry</button>
+        </div>
+      )}
 
       {!loading && repositories.length > 0 && (
         <div className="flex items-center gap-2 text-xs text-text-muted font-mono">

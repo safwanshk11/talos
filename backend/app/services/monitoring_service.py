@@ -22,11 +22,12 @@ from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.models.repository import Repository
 from app.models.scan import RepositoryScan
-from app.models.future import MaintenanceIssue, MaintenanceJob, ActionLog
+from app.models.future import MaintenanceIssue, MaintenanceJob, PatchAttempt, ActionLog
 from app.models.monitoring import RepositoryEvent
 from app.services.repository_service import RepositoryService
 from app.services.scanner_service import ScannerService
 from app.services.patch_service import PatchService
+from app.services.git_workspace_service import GitWorkspaceService
 
 logger = logging.getLogger("talos.monitoring")
 
@@ -294,6 +295,46 @@ class MonitoringOrchestrator:
             )
 
 
+class WorkspaceReaperService:
+    """Phase 8 section 14: patch workspaces (isolated git clones on the shared
+    `talos_workspaces` volume) are kept on disk for as long as a job might still
+    need them — a pending approval, a not-yet-clicked manual Verify/Deliver.
+    Nothing previously reclaimed them once a job was genuinely done, so they
+    accumulated forever. This reaps them on a delay long enough that a human
+    reviewing a demo-day result still has the workspace available, without
+    keeping every clone since the app's first run.
+
+    Only PatchAttempt.workspace_path is cleared — patch_diff, analysis, plan,
+    and every other persisted field on the attempt/job are untouched, so the
+    audit trail and diff viewer keep working after a workspace is reaped."""
+
+    @staticmethod
+    async def reap(db: AsyncSession) -> int:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=settings.WORKSPACE_RETENTION_HOURS)
+        not_reapable = set(ACTIVE_JOB_STATUSES) | {"waiting_for_approval"}
+
+        stmt = (
+            select(PatchAttempt, MaintenanceJob)
+            .join(MaintenanceJob, PatchAttempt.job_id == MaintenanceJob.id)
+            .where(PatchAttempt.workspace_path.isnot(None))
+            .where(MaintenanceJob.status.notin_(not_reapable))
+        )
+        rows = (await db.execute(stmt)).all()
+
+        reaped = 0
+        for attempt, job in rows:
+            last_activity = job.completed_at or job.created_at
+            if last_activity and last_activity > cutoff:
+                continue
+            GitWorkspaceService.cleanup(attempt.workspace_path)
+            attempt.workspace_path = None
+            reaped += 1
+
+        if reaped:
+            await db.commit()
+        return reaped
+
+
 class SchedulerService:
     """Section 7-9, 42: the simplest deployment-compatible scheduler — an
     asyncio background task inside the existing backend process. No new
@@ -333,3 +374,10 @@ class SchedulerService:
                 except Exception as exc:
                     logger.exception(f"Scheduled cycle failed for repository {repo.id}")
                     await EventService.mark(db, event, "failed", str(exc))
+
+            try:
+                reaped = await WorkspaceReaperService.reap(db)
+                if reaped:
+                    logger.info(f"Workspace reaper: reclaimed {reaped} stale patch workspace(s).")
+            except Exception:
+                logger.exception("Workspace reaper tick failed.")

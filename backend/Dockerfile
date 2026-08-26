@@ -32,4 +32,13 @@ COPY . .
 
 EXPOSE 8000
 
+# Non-root: this container is not made to run as an unprivileged user because
+# it mounts the host's /var/run/docker.sock (docker-outside-of-docker, see
+# docker-compose.yml) to launch Phase 4 verification sandboxes — that socket
+# is only usable by whichever user/group owns it on the host, and forcing a
+# fixed non-root UID here would break that across hosts. Documented as a
+# known limitation rather than silently left unaddressed (Phase 8 section 8).
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

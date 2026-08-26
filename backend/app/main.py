@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.core.config import settings
+from app.core.config import settings, validate_startup_config
 from app.db.session import engine
 from app.db.base import Base
 from app.api.v1 import health, auth, repositories, webhooks
@@ -31,6 +31,11 @@ async def _scheduler_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup: validate configuration before touching the database at all —
+    # a misconfigured deployment should fail loudly here, not three requests
+    # later inside a scan or patch job (Phase 8 section 6).
+    validate_startup_config()
+
     # Startup: create tables if they do not exist
     logger.info("Initializing database tables...")
     async with engine.begin() as conn:

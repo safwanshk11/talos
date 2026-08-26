@@ -29,10 +29,18 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE}${url}`, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${url}`, {
+      ...options,
+      headers,
+    });
+  } catch {
+    // fetch() itself rejects on DNS failure, connection refused, CORS, etc.
+    // — distinct from a real HTTP error response, and worth telling apart in
+    // the UI (e.g. "backend unreachable" vs. "the request failed").
+    throw new Error('TALOS backend is unreachable. Check your connection and try again.');
+  }
 
   if (!response.ok) {
     let errorMessage = `API Error (${response.status}): ${response.statusText}`;

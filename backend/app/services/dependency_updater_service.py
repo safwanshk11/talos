@@ -11,6 +11,20 @@ class DependencyUpdateError(Exception):
 
 PYPI_JSON_URL = "https://pypi.org/pypi/{package}/json"
 
+# npm dependency resolution runs on the host (outside the Phase 4 Docker
+# sandbox, since it only rewrites package-lock.json rather than executing
+# repository code) but still touches attacker-influenced package metadata —
+# strip TALOS's own secrets from its environment as defense in depth so a
+# malicious package's resolution/prepare step can't read them.
+_SECRET_ENV_KEYS = {
+    "GITHUB_PERSONAL_ACCESS_TOKEN", "GITHUB_CLIENT_SECRET", "GEMINI_API_KEY",
+    "DATABASE_URL", "SECRET_KEY", "GITHUB_WEBHOOK_SECRET", "POSTGRES_PASSWORD",
+}
+
+
+def _scrubbed_env() -> dict:
+    return {k: v for k, v in os.environ.items() if k not in _SECRET_ENV_KEYS}
+
 
 class DependencyUpdaterService:
     """Deterministic package-manager operations. The AI model decides WHAT needs
@@ -34,7 +48,7 @@ class DependencyUpdaterService:
             save_flag, "--package-lock-only", "--no-audit", "--no-fund",
         ]
         try:
-            proc = subprocess.run(cmd, cwd=workspace, capture_output=True, text=True, timeout=timeout)
+            proc = subprocess.run(cmd, cwd=workspace, capture_output=True, text=True, timeout=timeout, env=_scrubbed_env())
         except subprocess.TimeoutExpired as exc:
             raise DependencyUpdateError(f"npm install timed out after {timeout}s") from exc
         except FileNotFoundError as exc:

@@ -10,9 +10,10 @@ export const SettingsPage: React.FC = () => {
   const { ghStatus, refreshStatus, openConnectModal } = useAppShell();
   const [disconnecting, setDisconnecting] = useState(false);
   const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getHealth().then(setHealth).catch(() => {});
+    api.getHealth().then(setHealth).catch((err: any) => setHealthError(err.message || 'AI provider status unavailable.'));
   }, []);
 
   const handleDisconnect = async () => {
@@ -75,6 +76,15 @@ export const SettingsPage: React.FC = () => {
               </div>
             </div>
             <span className="badge badge-blue uppercase">Active</span>
+          </div>
+        </SectionCard>
+      )}
+
+      {healthError && (
+        <SectionCard icon={<Brain className="w-5 h-5" />} title="AI Provider" subtitle="Used for problem analysis and patch planning.">
+          <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-3 text-xs text-red-400">
+            <AlertCircle className="w-5 h-5 shrink-0" />
+            <span>Could not reach TALOS backend for AI provider status: {healthError}</span>
           </div>
         </SectionCard>
       )}

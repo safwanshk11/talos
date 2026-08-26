@@ -1,7 +1,11 @@
+import logging
 import os
 from typing import List, Union
-from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger("talos.config")
+
+DEFAULT_SECRET_KEY = "talos-super-secret-key-change-in-production-32-chars-minimum"
 
 
 class Settings(BaseSettings):
@@ -9,7 +13,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
 
-    SECRET_KEY: str = "talos-super-secret-key-change-in-production-32-chars-minimum"
+    SECRET_KEY: str = DEFAULT_SECRET_KEY
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
@@ -54,6 +58,11 @@ class Settings(BaseSettings):
     VERIFICATION_MEMORY_LIMIT: str = "1g"
     VERIFICATION_CPU_LIMIT: str = "1.5"
 
+    # Production Hardening (Phase 8)
+    # How long a completed job's patch workspace survives on disk before the
+    # reaper reclaims it (see monitoring_service.WorkspaceReaperService).
+    WORKSPACE_RETENTION_HOURS: int = 24
+
     @property
     def sync_database_url(self) -> str:
         """Returns synchronous database URL for Alembic migrations if needed."""
@@ -73,3 +82,50 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+class ConfigurationError(Exception):
+    """Raised at startup when configuration is unsafe or unusable — never at
+    the moment a user starts a maintenance job (Phase 8 section 6)."""
+
+
+def validate_startup_config() -> None:
+    """Fail fast on configuration that would otherwise surface as a confusing
+    failure deep inside a scan/patch/webhook request. In production
+    (ENVIRONMENT=production) unsafe defaults are fatal; in development they
+    only log a warning so the existing local workflow keeps working."""
+    is_production = settings.ENVIRONMENT.lower() == "production"
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    if settings.SECRET_KEY == DEFAULT_SECRET_KEY:
+        msg = "SECRET_KEY is still the published default — JWTs can be forged by anyone who reads this repo."
+        (errors if is_production else warnings).append(msg)
+
+    if settings.AI_PROVIDER not in ("ollama", "gemini"):
+        errors.append(f"AI_PROVIDER={settings.AI_PROVIDER!r} is not a supported provider (expected 'ollama' or 'gemini').")
+    elif settings.AI_PROVIDER == "gemini" and not settings.GEMINI_API_KEY:
+        msg = "AI_PROVIDER=gemini but GEMINI_API_KEY is not set — every AI-driven analysis/plan/patch call will fail."
+        (errors if is_production else warnings).append(msg)
+
+    if not settings.GITHUB_WEBHOOK_SECRET:
+        warnings.append("GITHUB_WEBHOOK_SECRET is not set — inbound GitHub webhooks will be rejected until it is configured.")
+
+    if not settings.GITHUB_CLIENT_ID or not settings.GITHUB_CLIENT_SECRET:
+        warnings.append("GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET are not set — GitHub OAuth login will be unavailable (personal access token login still works).")
+
+    if is_production and "localhost" in settings.GITHUB_REDIRECT_URI:
+        warnings.append(f"GITHUB_REDIRECT_URI still points at localhost ({settings.GITHUB_REDIRECT_URI}) in a production environment.")
+
+    if is_production and any("localhost" in origin for origin in settings.BACKEND_CORS_ORIGINS):
+        warnings.append("BACKEND_CORS_ORIGINS still includes localhost origins in a production environment.")
+
+    for w in warnings:
+        logger.warning(f"[config] {w}")
+
+    if errors:
+        for e in errors:
+            logger.error(f"[config] {e}")
+        raise ConfigurationError(
+            f"{len(errors)} fatal configuration error(s) in a production environment: " + " | ".join(errors)
+        )

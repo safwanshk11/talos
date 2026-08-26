@@ -38,6 +38,7 @@ from app.services.patch_service import PatchService
 from app.services.verification.verification_service import VerificationService
 from app.services.delivery_service import DeliveryService
 from app.services.decision_service import PolicyService
+from app.services.monitoring_service import MonitoringOrchestrator
 
 router = APIRouter()
 
@@ -277,6 +278,12 @@ async def trigger_repository_scan(
     repo = await RepositoryService.get_repository_by_id(db, current_user.id, repository_id)
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found.")
+
+    # Phase 8 section 23: a double-click (or scripted retry) must not launch a
+    # second concurrent scan of the same repository — reuses the same
+    # active-scan check Phase 7's autonomous cycle already relies on.
+    if await MonitoringOrchestrator.has_active_scan(db, repository_id):
+        raise HTTPException(status_code=409, detail="A scan is already running for this repository.")
 
     token = await RepositoryService.get_user_github_token(db, current_user.id)
     scan = await ScannerService.run_repository_scan(db, current_user.id, repository_id, token)

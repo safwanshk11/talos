@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -52,8 +50,15 @@ services:
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
       - MONITORING_SCHEDULER_INTERVAL_MINUTES=${MONITORING_SCHEDULER_INTERVAL_MINUTES:-15}
       - MONITORING_SCHEDULER_ENABLED=${MONITORING_SCHEDULER_ENABLED:-true}
+      - WORKSPACE_RETENTION_HOURS=${WORKSPACE_RETENTION_HOURS:-24}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     volumes:
       # Docker-outside-of-Docker: lets the backend launch isolated, ephemeral
       # sandbox containers for Phase 4 verification via the host's own Docker
@@ -79,8 +84,15 @@ services:
       - "3000:3000"
     environment:
       - VITE_BACKEND_URL=http://backend:8000
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres_data:
