@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { api } from '../services/api';
+import { TalosMark } from '../components/ui/TalosMark';
 import { ShieldCheck, Github, Key, Loader2, Lock, GitPullRequest, AlertCircle, ArrowLeft } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
@@ -62,7 +63,7 @@ export const LoginPage: React.FC = () => {
           transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
         >
           <div className="flex items-center gap-2 mb-6">
-            <ShieldCheck className="w-5 h-5 text-blue-400" />
+            <TalosMark size={20} />
             <span className="font-bold text-sm font-mono tracking-wider">TALOS</span>
           </div>
           <h1 className="text-4xl font-bold tracking-tight leading-[1.1]">
@@ -105,7 +106,7 @@ export const LoginPage: React.FC = () => {
           transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
         >
           <div className="lg:hidden flex items-center gap-2 mb-8 justify-center">
-            <ShieldCheck className="w-5 h-5 text-blue-400" />
+            <TalosMark size={20} />
             <span className="font-bold text-sm font-mono tracking-wider">TALOS</span>
           </div>
 

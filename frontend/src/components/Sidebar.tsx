@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useDashboardStats } from '../hooks/useDashboardStats';
+import { TalosMark } from './ui/TalosMark';
 import {
   LayoutDashboard,
   GitFork,
@@ -9,7 +10,6 @@ import {
   GitPullRequest,
   Activity,
   Settings,
-  ShieldCheck,
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
@@ -29,8 +29,8 @@ export const Sidebar: React.FC = () => {
     <aside className="w-64 bg-sidebar border-r border-subtle flex flex-col h-screen sticky top-0 select-none shrink-0">
       {/* Brand Header */}
       <div className="p-5 border-b border-subtle flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-blue-600/15 border border-blue-500/25 flex items-center justify-center text-blue-400 font-bold">
-          <ShieldCheck className="w-5 h-5" />
+        <div className="w-9 h-9 rounded-lg bg-blue-600/15 border border-blue-500/25 flex items-center justify-center">
+          <TalosMark size={20} />
         </div>
         <div>
           <h1 className="font-bold text-base tracking-wider text-text-primary font-mono">TALOS</h1>

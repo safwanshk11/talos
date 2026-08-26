@@ -43,8 +43,15 @@ async def get_current_user(
     if settings.ENVIRONMENT.lower() == "production":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated.")
 
-    # Fallback to local default user for local dev seamless operation only.
-    stmt = select(User).where(User.username == "talos_developer")
+    # Fallback to the local default user for local dev seamless operation
+    # only. This is a genuinely single-tenant system (see README Known
+    # Limitations) — there is meant to be exactly one local account, ever.
+    # Look it up by "the account that exists" (lowest id), not by the literal
+    # username "talos_developer": connecting GitHub renames that account to
+    # the real GitHub login (see /github/pat, /github/callback), so matching
+    # on the placeholder name would stop finding it the moment it's renamed
+    # and silently fork off a second, disconnected duplicate account instead.
+    stmt = select(User).order_by(User.id).limit(1)
     res = await db.execute(stmt)
     user = res.scalars().first()
 

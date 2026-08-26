@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppShell } from './layouts/AppShell';
 import { LandingPage } from './pages/LandingPage';
+import { FirstBootExperience } from './components/FirstBootExperience';
 import { LoginPage } from './pages/LoginPage';
 import { CommandCenterPage } from './pages/CommandCenterPage';
 import { RepositoryRegistryPage } from './pages/RepositoryRegistryPage';
@@ -15,7 +16,14 @@ export const App: React.FC = () => {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<LandingPage />} />
+        <Route
+          path="/"
+          element={
+            <FirstBootExperience>
+              <LandingPage />
+            </FirstBootExperience>
+          }
+        />
         <Route path="/login" element={<LoginPage />} />
 
         <Route path="/app" element={<AppShell />}>

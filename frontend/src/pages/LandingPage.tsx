@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Reveal } from '../components/ui/Reveal';
+import { TalosMark } from '../components/ui/TalosMark';
 import {
   ShieldCheck,
   Search,
@@ -44,7 +45,7 @@ function Navbar() {
         }`}
       >
         <div className="flex items-center gap-2 pr-4 mr-2 border-r border-subtle">
-          <ShieldCheck className="w-4 h-4 text-blue-400" />
+          <TalosMark size={16} />
           <span className="font-bold text-sm tracking-wider font-mono text-text-primary">TALOS</span>
         </div>
         {NAV_LINKS.map((link) => (
@@ -373,7 +374,7 @@ export const LandingPage: React.FC = () => {
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-blue-400" />
+              <TalosMark size={16} />
               <span className="font-bold text-sm font-mono">TALOS</span>
             </div>
             <p className="text-xs text-text-muted mt-1">Autonomous. Verified. Delivered.</p>

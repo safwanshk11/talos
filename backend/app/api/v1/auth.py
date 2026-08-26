@@ -88,7 +88,11 @@ async def connect_github_pat(
         )
         db.add(conn)
 
-    # Update user details if available
+    # Update user details if available — adopt the real GitHub identity onto
+    # the local account rather than leaving the "talos_developer" placeholder
+    # displayed forever alongside a real avatar.
+    if gh_user.get("login"):
+        current_user.username = gh_user.get("login")
     if gh_user.get("avatar_url"):
         current_user.avatar_url = gh_user.get("avatar_url")
     if gh_user.get("email"):
@@ -151,8 +155,12 @@ async def github_oauth_callback(
         )
         db.add(conn)
 
+    if gh_user.get("login"):
+        current_user.username = gh_user.get("login")
     if gh_user.get("avatar_url"):
         current_user.avatar_url = gh_user.get("avatar_url")
+    if gh_user.get("email"):
+        current_user.email = gh_user.get("email")
 
     await db.commit()
 
@@ -175,5 +183,12 @@ async def disconnect_github(
     conn = res.scalars().first()
     if conn:
         await db.delete(conn)
+        # The connect flow adopts the real GitHub login/avatar onto this local
+        # account (see /github/pat, /github/callback) — disconnect must undo
+        # that, or the UI keeps showing a real identity after "disconnecting".
+        if current_user.username != "talos_developer":
+            current_user.username = "talos_developer"
+        current_user.avatar_url = "https://github.com/identicons/talos.png"
+        current_user.email = "dev@talos.internal"
         await db.commit()
     return {"message": "GitHub connection removed successfully."}
