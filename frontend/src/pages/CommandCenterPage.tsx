@@ -166,8 +166,8 @@ export const CommandCenterPage: React.FC = () => {
           </SectionCard>
         </div>
 
-        <div className="lg:col-span-2">
-          <SectionCard title="Recent Outcomes" subtitle="Across all connected repositories" noPadding>
+        <div className="lg:col-span-2 flex">
+          <SectionCard title="Recent Outcomes" subtitle="Across all connected repositories" noPadding className="h-full w-full">
             {loading ? (
               <div className="p-6 space-y-2">
                 <div className="h-8 skeleton rounded" />
@@ -179,7 +179,7 @@ export const CommandCenterPage: React.FC = () => {
                 <EmptyState icon={<CheckCircle2 className="w-5 h-5" />} title="No activity yet" description="Scan a repository to get started." />
               </div>
             ) : (
-              <div className="divide-y divide-white/[0.06] max-h-[420px] overflow-y-auto">
+              <div className="divide-y divide-white/[0.06] h-full overflow-y-auto">
                 {recentLogs.map((log) => (
                   <div key={log.id} className="px-6 py-3 text-xs">
                     <div className="flex items-center justify-between gap-2">

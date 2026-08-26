@@ -12,9 +12,9 @@ interface SectionCardProps {
 
 export const SectionCard: React.FC<SectionCardProps> = ({ icon, title, subtitle, action, children, className = '', noPadding }) => {
   return (
-    <div className={`rounded-xl bg-card border border-subtle ${className}`}>
+    <div className={`rounded-xl bg-card border border-subtle flex flex-col ${className}`}>
       {(title || action) && (
-        <div className="flex items-center justify-between gap-4 px-6 py-4 border-b border-subtle">
+        <div className="flex items-center justify-between gap-4 px-6 py-4 border-b border-subtle shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             {icon && (
               <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 shrink-0">
@@ -29,7 +29,7 @@ export const SectionCard: React.FC<SectionCardProps> = ({ icon, title, subtitle,
           {action && <div className="shrink-0">{action}</div>}
         </div>
       )}
-      <div className={noPadding ? '' : 'p-6'}>{children}</div>
+      <div className={`flex-1 min-h-0 ${noPadding ? '' : 'p-6'}`}>{children}</div>
     </div>
   );
 };
