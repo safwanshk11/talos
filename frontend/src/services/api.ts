@@ -16,7 +16,13 @@ import {
   RepositoryEvent,
 } from '../types';
 
-const API_BASE = '/api/v1';
+// Absolute backend origin, baked in at build time by Vite. Needed because a
+// static Vercel deployment has no server-side proxy to resolve a relative
+// /api/* path — unlike the local Docker Compose setup, where both the
+// frontend (3000) and backend (8000) ports are published to the host, so
+// the same fallback also resolves correctly from the browser there.
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const API_BASE = `${API_BASE_URL}/api/v1`;
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('talos_token');
