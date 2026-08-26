@@ -12,6 +12,7 @@ import {
   VerificationRun,
   PullRequest,
   HealthStatus,
+  AutomationPolicy,
 } from '../types';
 
 const API_BASE = '/api/v1';
@@ -104,6 +105,21 @@ export const api = {
     request<MaintenanceJob[]>(`/repositories/${repoId}/issues/${issueId}/jobs`),
   getJobDetail: (repoId: number, jobId: number) =>
     request<MaintenanceJob>(`/repositories/${repoId}/jobs/${jobId}`),
+
+  // Phase 6.5: Decision Engine & Autonomy Governance
+  getAutomationPolicy: (repoId: number) => request<AutomationPolicy>(`/repositories/${repoId}/automation-policy`),
+  updateAutomationPolicy: (repoId: number, payload: Partial<AutomationPolicy>) =>
+    request<AutomationPolicy>(`/repositories/${repoId}/automation-policy`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  approveJob: (repoId: number, issueId: number, jobId: number) =>
+    request<MaintenanceJob>(`/repositories/${repoId}/issues/${issueId}/jobs/${jobId}/approve`, { method: 'POST' }),
+  rejectJob: (repoId: number, issueId: number, jobId: number, reason?: string) =>
+    request<MaintenanceJob>(`/repositories/${repoId}/issues/${issueId}/jobs/${jobId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
 
   // Phase 4: Verification Engine
   runVerification: (repoId: number, jobId: number) =>

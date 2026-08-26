@@ -45,3 +45,4 @@ class Repository(Base):
     readiness = relationship("RepositoryReadiness", back_populates="repository", uselist=False, cascade="all, delete-orphan")
     action_logs = relationship("ActionLog", back_populates="repository", cascade="all, delete-orphan")
     pull_requests = relationship("PullRequest", back_populates="repository", cascade="all, delete-orphan")
+    automation_policy = relationship("RepositoryAutomationPolicy", back_populates="repository", uselist=False, cascade="all, delete-orphan")

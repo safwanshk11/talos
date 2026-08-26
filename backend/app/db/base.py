@@ -14,6 +14,7 @@ from app.models.future import (
     ActionLog,
     PullRequest,
 )
+from app.models.policy import RepositoryAutomationPolicy
 
 __all__ = [
     "Base",
@@ -30,4 +31,5 @@ __all__ = [
     "VerificationCheck",
     "ActionLog",
     "PullRequest",
+    "RepositoryAutomationPolicy",
 ]

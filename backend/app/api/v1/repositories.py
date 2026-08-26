@@ -27,12 +27,14 @@ from app.schemas.scan import (
 from app.schemas.patch import MaintenanceJobResponse
 from app.schemas.verification import VerificationRunResponse
 from app.schemas.delivery import PullRequestResponse
+from app.schemas.policy import AutomationPolicyResponse, UpdateAutomationPolicyRequest, RejectJobRequest
 from app.services.repository_service import RepositoryService
 from app.services.github_service import GitHubService
 from app.services.scanner_service import ScannerService
 from app.services.patch_service import PatchService
 from app.services.verification.verification_service import VerificationService
 from app.services.delivery_service import DeliveryService
+from app.services.decision_service import PolicyService
 
 router = APIRouter()
 
@@ -180,6 +182,38 @@ async def toggle_monitoring(
 
 
 # ==========================================
+# PHASE 6.5: DECISION ENGINE & AUTONOMY GOVERNANCE
+# ==========================================
+
+@router.get("/{repository_id}/automation-policy", response_model=AutomationPolicyResponse)
+async def get_automation_policy(
+    repository_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    repo = await RepositoryService.get_repository_by_id(db, current_user.id, repository_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found.")
+    return await PolicyService.get_or_create(db, repository_id)
+
+
+@router.put("/{repository_id}/automation-policy", response_model=AutomationPolicyResponse)
+async def update_automation_policy(
+    repository_id: int,
+    payload: UpdateAutomationPolicyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Only the repository owner may change autonomy policy — enforced by
+    get_repository_by_id filtering on the authenticated user, not the frontend."""
+    repo = await RepositoryService.get_repository_by_id(db, current_user.id, repository_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found.")
+    policy = await PolicyService.get_or_create(db, repository_id)
+    return await PolicyService.update(db, policy, payload)
+
+
+# ==========================================
 # PHASE 2: SCAN & ISSUE ENDPOINTS
 # ==========================================
 
@@ -285,6 +319,44 @@ async def prepare_fix(
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Prepare fix failed: {exc}")
+    return await PatchService.to_response_dict(db, job)
+
+
+@router.post("/{repository_id}/issues/{issue_id}/jobs/{job_id}/approve", response_model=MaintenanceJobResponse)
+async def approve_job(
+    repository_id: int,
+    issue_id: int,
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Developer approval for a job the Decision Engine (Phase 6.5) paused with
+    APPROVAL_REQUIRED. Resumes the exact analysis/plan TALOS already produced —
+    never regenerated — and, once patched, continues straight through
+    verification and (if verified) delivery, exactly as an AUTO_EXECUTE job would."""
+    token = await RepositoryService.get_user_github_token(db, current_user.id)
+    try:
+        job = await PatchService.resume_after_approval(db, current_user.id, repository_id, issue_id, job_id, token)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Resuming approved job failed: {exc}")
+    return await PatchService.to_response_dict(db, job)
+
+
+@router.post("/{repository_id}/issues/{issue_id}/jobs/{job_id}/reject", response_model=MaintenanceJobResponse)
+async def reject_job(
+    repository_id: int,
+    issue_id: int,
+    job_id: int,
+    payload: RejectJobRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Developer rejection of a job paused with APPROVAL_REQUIRED. TALOS does
+    not repeat the same autonomous action automatically — the issue remains
+    open for the developer to reconsider or fix manually."""
+    job = await PatchService.reject(db, current_user.id, repository_id, issue_id, job_id, payload.reason)
     return await PatchService.to_response_dict(db, job)
 
 

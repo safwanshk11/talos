@@ -20,6 +20,10 @@ import {
   ShieldCheck,
   GitPullRequest,
   Brain,
+  Gavel,
+  ThumbsUp,
+  ThumbsDown,
+  Ban,
 } from 'lucide-react';
 
 interface IssueDetailModalProps {
@@ -39,7 +43,10 @@ const PIPELINE_STEPS: { key: string; label: string; statuses: string[] }[] = [
 ];
 
 const STEP_ORDER = ['analyzing', 'planning', 'sandboxing', 'patching', 'verifying', 'delivering'];
-const TERMINAL_JOB_STATUSES = ['patch_ready', 'verified', 'verification_failed', 'delivered', 'delivery_failed', 'resolved', 'failed', 'escalated'];
+const TERMINAL_JOB_STATUSES = [
+  'patch_ready', 'verified', 'verification_failed', 'delivered', 'delivery_failed', 'resolved', 'failed', 'escalated',
+  'blocked_conflict', 'ignored', 'rejected',
+];
 
 export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue: issueProp, repoId, onClose, onJobUpdated }) => {
   // Mirrors issueProp but survives the close animation — issueProp goes null
@@ -64,6 +71,10 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue: issue
   const [pullRequest, setPullRequest] = useState<PullRequest | null>(null);
   const [delivering, setDelivering] = useState(false);
   const [deliverError, setDeliverError] = useState<string | null>(null);
+
+  const [approving, setApproving] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
 
   const loadLatestVerificationRun = async (jobId: number) => {
     try {
@@ -92,6 +103,7 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue: issue
     setVerifyError(null);
     setPullRequest(null);
     setDeliverError(null);
+    setApprovalError(null);
     setJobLogs([]);
     setLoadingHistory(true);
     api
@@ -188,6 +200,40 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue: issue
     }
   };
 
+  const handleApprove = async () => {
+    if (!job) return;
+    setApproving(true);
+    setApprovalError(null);
+    try {
+      const updatedJob = await api.approveJob(repoId, issue.id, job.id);
+      setJob(updatedJob);
+      await loadLatestVerificationRun(updatedJob.id);
+      await loadLatestPullRequest(updatedJob.id);
+      await fetchJobLogs(updatedJob.id);
+      onJobUpdated?.();
+    } catch (err: any) {
+      setApprovalError(err.message || 'Approval failed.');
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!job) return;
+    setRejecting(true);
+    setApprovalError(null);
+    try {
+      const updatedJob = await api.rejectJob(repoId, issue.id, job.id);
+      setJob(updatedJob);
+      await fetchJobLogs(updatedJob.id);
+      onJobUpdated?.();
+    } catch (err: any) {
+      setApprovalError(err.message || 'Reject failed.');
+    } finally {
+      setRejecting(false);
+    }
+  };
+
   const activeStepKey = (() => {
     if (!job) return preparing ? 'analyzing' : null;
     if (delivering) return 'delivering';
@@ -200,12 +246,14 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue: issue
 
   const activeStepIndex = activeStepKey ? STEP_ORDER.indexOf(activeStepKey) : -1;
   const isTerminal = job && TERMINAL_JOB_STATUSES.includes(job.status);
-  const canPrepareFix = !preparing && !verifying && !delivering && (!job || isTerminal);
+  const isAwaitingApproval = job?.status === 'waiting_for_approval';
+  const canPrepareFix = !preparing && !verifying && !delivering && !approving && !rejecting && (!job || isTerminal);
   const canRunVerification = !!job && !preparing && !verifying && !delivering && job.status === 'patch_ready';
   const canDeliver = !!job && !preparing && !verifying && !delivering && (job.status === 'verified' || job.status === 'delivery_failed');
 
   const hasDelivery = !!pullRequest || job?.status === 'delivered' || job?.status === 'delivery_failed';
   const tabs: TabDef[] = [{ key: 'overview', label: 'Overview' }];
+  if (job?.decision) tabs.push({ key: 'decision', label: 'Decision' });
   if (latestAttempt?.plan) tabs.push({ key: 'analysis', label: 'Analysis' });
   if (latestAttempt?.patch_diff) tabs.push({ key: 'patch', label: 'Patch' });
   if (verificationRun) tabs.push({ key: 'verification', label: 'Verification' });
@@ -294,6 +342,76 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue: issue
             <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-2 font-mono">
               <XCircle className="w-4 h-4 shrink-0" />
               <span>{prepareError}</span>
+            </div>
+          )}
+          {isAwaitingApproval && (
+            <div className="p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 font-mono">
+              <div className="flex items-start gap-2">
+                <Gavel className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold">DEVELOPER APPROVAL REQUIRED</div>
+                  <div className="text-slate-300 mt-1">{job.decision_reason || 'TALOS policy requires approval before continuing.'}</div>
+                  {job.decision_matched_rules && job.decision_matched_rules.length > 0 && (
+                    <ul className="mt-2 space-y-0.5 text-[11px] text-slate-400">
+                      {job.decision_matched_rules.map((rule, idx) => (
+                        <li key={idx}>• {rule}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 mt-3">
+                <button
+                  onClick={handleApprove}
+                  disabled={approving || rejecting}
+                  className="btn btn-primary text-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {approving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ThumbsUp className="w-3.5 h-3.5" />}
+                  <span>{approving ? 'Resuming...' : 'Approve & Continue'}</span>
+                </button>
+                <button
+                  onClick={handleReject}
+                  disabled={approving || rejecting}
+                  className="btn btn-secondary text-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {rejecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ThumbsDown className="w-3.5 h-3.5" />}
+                  <span>{rejecting ? 'Rejecting...' : 'Reject'}</span>
+                </button>
+              </div>
+            </div>
+          )}
+          {approvalError && (
+            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-2 font-mono">
+              <XCircle className="w-4 h-4 shrink-0" />
+              <span>{approvalError}</span>
+            </div>
+          )}
+          {job?.status === 'blocked_conflict' && (
+            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-start gap-2 font-mono">
+              <Ban className="w-4 h-4 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-semibold">BLOCKED BY CONFLICT</div>
+                <div className="text-slate-300 mt-1">{job.decision_reason || `Repository has a conflicting active job (#${job.blocking_job_id}).`}</div>
+                <div className="text-slate-500 mt-1.5 text-[11px]">TALOS processes one patch job per repository at a time. Try again once the other job finishes.</div>
+              </div>
+            </div>
+          )}
+          {job?.status === 'ignored' && (
+            <div className="p-3 rounded-lg bg-white/[0.03] border border-subtle text-slate-300 flex items-start gap-2 font-mono">
+              <Ban className="w-4 h-4 shrink-0 mt-0.5 text-slate-500" />
+              <div>
+                <div className="font-semibold text-slate-200">IGNORED BY POLICY</div>
+                <div className="text-slate-400 mt-1">{job.decision_reason || 'TALOS did not act on this issue.'}</div>
+              </div>
+            </div>
+          )}
+          {job?.status === 'rejected' && (
+            <div className="p-3 rounded-lg bg-white/[0.03] border border-subtle text-slate-300 flex items-start gap-2 font-mono">
+              <ThumbsDown className="w-4 h-4 shrink-0 mt-0.5 text-slate-500" />
+              <div>
+                <div className="font-semibold text-slate-200">REJECTED BY DEVELOPER</div>
+                <div className="text-slate-400 mt-1">{job.rejection_reason || 'Autonomous action was declined.'}</div>
+              </div>
             </div>
           )}
           {job?.status === 'escalated' && (
@@ -458,6 +576,70 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue: issue
                 )}
               </div>
             </div>
+          </TabPanel>
+
+          <TabPanel tabKey="decision" active={activeTab}>
+            {job?.decision && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Gavel className="w-4 h-4 text-blue-400" />
+                  <h4 className="font-semibold text-slate-200 font-mono uppercase text-sm">{job.decision.replace(/_/g, ' ')}</h4>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 font-mono">
+                  <div className="p-3 rounded bg-slate-950/60 border border-subtle/70">
+                    <span className="text-slate-500 block text-[11px] mb-1">MATCHED POLICY</span>
+                    <span className="text-slate-200 font-bold text-sm">{job.decision_policy || 'N/A'}</span>
+                  </div>
+                  <div className="p-3 rounded bg-slate-950/60 border border-subtle/70">
+                    <span className="text-slate-500 block text-[11px] mb-1">RISK</span>
+                    <span className="text-slate-200 font-bold text-sm uppercase">{job.risk_level || 'N/A'}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-slate-300 font-mono uppercase text-[11px]">Why TALOS Decided This</h4>
+                  <div className="p-3 rounded bg-slate-950/60 border border-subtle text-slate-300 font-mono whitespace-pre-wrap">
+                    {job.decision_reason}
+                  </div>
+                </div>
+
+                {job.decision_matched_rules && job.decision_matched_rules.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-semibold text-slate-300 font-mono uppercase text-[11px]">Rules Evaluated</h4>
+                    <ul className="p-3 rounded bg-slate-950/60 border border-subtle text-slate-300 font-mono space-y-1">
+                      {job.decision_matched_rules.map((rule, idx) => (
+                        <li key={idx} className="flex items-start gap-1.5">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0 mt-0.5" />
+                          <span>{rule}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {job.decision_blocked_by && job.decision_blocked_by.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-semibold text-slate-300 font-mono uppercase text-[11px]">Blocked By</h4>
+                    <ul className="p-3 rounded bg-red-500/5 border border-red-500/20 text-red-300 font-mono space-y-1">
+                      {job.decision_blocked_by.map((b, idx) => (
+                        <li key={idx} className="flex items-start gap-1.5">
+                          <Ban className="w-3 h-3 shrink-0 mt-0.5" />
+                          <span>{b}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {job.approved_at && (
+                  <div className="text-[11px] text-emerald-400 font-mono">Approved by developer at {new Date(job.approved_at).toLocaleString()}</div>
+                )}
+                {job.rejected_at && (
+                  <div className="text-[11px] text-slate-400 font-mono">Rejected by developer at {new Date(job.rejected_at).toLocaleString()}</div>
+                )}
+              </div>
+            )}
           </TabPanel>
 
           <TabPanel tabKey="analysis" active={activeTab}>
@@ -643,6 +825,21 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue: issue
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
                 <span>Already resolved on the default branch — confirmed via OSV, not assumed</span>
               </>
+            ) : job?.status === 'waiting_for_approval' ? (
+              <>
+                <Gavel className="w-3.5 h-3.5 text-amber-500" />
+                <span>Decision Engine paused here — developer approval required to continue</span>
+              </>
+            ) : job?.status === 'blocked_conflict' ? (
+              <>
+                <Ban className="w-3.5 h-3.5 text-amber-500" />
+                <span>Blocked by a conflicting job — one active patch job per repository</span>
+              </>
+            ) : job?.status === 'ignored' || job?.status === 'rejected' ? (
+              <>
+                <Ban className="w-3.5 h-3.5 text-slate-500" />
+                <span>TALOS did not modify the repository</span>
+              </>
             ) : (
               <>
                 <Wrench className="w-3.5 h-3.5 text-slate-500" />
@@ -683,15 +880,17 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue: issue
               title={job ? 'Re-run to generate a new patch attempt' : 'Run the real Phase 3 planning + patch generation workflow'}
               className={`btn text-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed ${canRunVerification || canDeliver ? 'btn-secondary' : 'btn-primary'}`}
             >
-              {preparing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wrench className="w-3.5 h-3.5" />}
+              {preparing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : isAwaitingApproval ? <Gavel className="w-3.5 h-3.5" /> : <Wrench className="w-3.5 h-3.5" />}
               <span>
                 {preparing
                   ? 'TALOS Working...'
+                  : isAwaitingApproval
+                  ? 'Awaiting Approval'
                   : job?.status === 'verified' || job?.status === 'verification_failed' || job?.status === 'delivered' || job?.status === 'delivery_failed'
                   ? 'Prepare New Fix'
                   : job?.status === 'patch_ready'
                   ? 'Regenerate Fix'
-                  : job?.status === 'escalated' || job?.status === 'failed'
+                  : job?.status === 'escalated' || job?.status === 'failed' || job?.status === 'blocked_conflict' || job?.status === 'ignored' || job?.status === 'rejected'
                   ? 'Retry Prepare Fix'
                   : 'Prepare Fix'}
               </span>

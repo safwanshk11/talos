@@ -19,8 +19,9 @@ export function toneForStatus(status: string): StatusTone {
   if (['FAILED', 'VERIFICATION_FAILED', 'DELIVERY_FAILED', 'CRITICAL', 'HIGH', 'ERROR', 'CLOSED'].includes(s)) return 'danger';
   // Bare "OPEN" always means a MaintenanceIssue still needs action in this
   // app's vocabulary — never treat it as a success/closed-out state.
-  if (['OPEN', 'PAUSED', 'MEDIUM', 'PENDING', 'ESCALATED', 'TIMED_OUT', 'WARNING'].includes(s)) return 'warning';
-  if (['ANALYZING', 'PLANNING', 'PATCHING', 'VERIFYING', 'DELIVERING', 'RUNNING', 'SANDBOXING'].includes(s)) return 'info';
+  if (['OPEN', 'PAUSED', 'MEDIUM', 'PENDING', 'ESCALATED', 'TIMED_OUT', 'WARNING', 'APPROVAL_REQUIRED', 'WAITING_FOR_APPROVAL', 'BLOCKED_CONFLICT', 'BLOCKED_BY_CONFLICT'].includes(s)) return 'warning';
+  if (['ANALYZING', 'PLANNING', 'PATCHING', 'VERIFYING', 'DELIVERING', 'RUNNING', 'SANDBOXING', 'AUTO_EXECUTE', 'PREPARE_ONLY'].includes(s)) return 'info';
+  if (['IGNORED', 'REJECTED', 'REJECTED_BY_USER'].includes(s)) return 'neutral';
   return 'neutral';
 }
 

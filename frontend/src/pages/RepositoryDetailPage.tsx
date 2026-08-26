@@ -7,6 +7,9 @@ import {
   MaintenanceIssue,
   ActionLog,
   PullRequest,
+  AutomationPolicy,
+  AutomationMode,
+  TierAction,
 } from '../types';
 import { ReadinessCard } from '../components/ReadinessCard';
 import { ScanProgressModal } from '../components/ScanProgressModal';
@@ -33,7 +36,21 @@ import {
   Trash2,
   PauseCircle,
   GitPullRequest,
+  Gavel,
+  Plus,
+  X,
 } from 'lucide-react';
+
+const AUTOMATION_MODES: AutomationMode[] = ['CONSERVATIVE', 'BALANCED', 'AUTONOMOUS'];
+const STANDARD_TIER_ACTIONS: TierAction[] = ['AUTO_EXECUTE', 'PREPARE_ONLY', 'APPROVAL_REQUIRED'];
+const HARD_TIER_ACTIONS: TierAction[] = ['APPROVAL_REQUIRED', 'ESCALATE'];
+
+const TIER_LABEL: Record<string, string> = {
+  AUTO_EXECUTE: 'Auto Execute',
+  PREPARE_ONLY: 'Prepare Only',
+  APPROVAL_REQUIRED: 'Approval Required',
+  ESCALATE: 'Escalate',
+};
 
 export const RepositoryDetailPage: React.FC = () => {
   const params = useParams<{ id: string }>();
@@ -47,6 +64,9 @@ export const RepositoryDetailPage: React.FC = () => {
   const [issues, setIssues] = useState<MaintenanceIssue[]>([]);
   const [logs, setLogs] = useState<ActionLog[]>([]);
   const [pullRequests, setPullRequests] = useState<PullRequest[]>([]);
+  const [policy, setPolicy] = useState<AutomationPolicy | null>(null);
+  const [policySaving, setPolicySaving] = useState(false);
+  const [newProtectedPath, setNewProtectedPath] = useState('');
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,18 +89,20 @@ export const RepositoryDetailPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [repoData, readinessData, issuesData, logsData, pullRequestsData] = await Promise.all([
+      const [repoData, readinessData, issuesData, logsData, pullRequestsData, policyData] = await Promise.all([
         api.getRepositoryDetail(repoId),
         api.getReadiness(repoId),
         api.getIssues(repoId),
         api.getLogs(repoId),
         api.getRepositoryPullRequests(repoId),
+        api.getAutomationPolicy(repoId),
       ]);
       setRepo(repoData);
       setReadiness(readinessData);
       setIssues(issuesData);
       setLogs(logsData);
       setPullRequests(pullRequestsData);
+      setPolicy(policyData);
 
       // Deep-link support: Command Center / Maintenance Bay link here with
       // ?issue=<id> to jump straight to a specific finding.
@@ -122,6 +144,34 @@ export const RepositoryDetailPage: React.FC = () => {
     } catch (err: any) {
       alert(`Failed to update status: ${err.message}`);
     }
+  };
+
+  const handlePolicyChange = async (payload: Partial<AutomationPolicy>) => {
+    setPolicySaving(true);
+    try {
+      const updated = await api.updateAutomationPolicy(repoId, payload);
+      setPolicy(updated);
+    } catch (err: any) {
+      alert(`Failed to update autonomy policy: ${err.message}`);
+    } finally {
+      setPolicySaving(false);
+    }
+  };
+
+  const handleAddProtectedPath = async () => {
+    const path = newProtectedPath.trim();
+    if (!path || !policy) return;
+    if (policy.protected_paths.includes(path)) {
+      setNewProtectedPath('');
+      return;
+    }
+    setNewProtectedPath('');
+    await handlePolicyChange({ protected_paths: [...policy.protected_paths, path] });
+  };
+
+  const handleRemoveProtectedPath = async (path: string) => {
+    if (!policy) return;
+    await handlePolicyChange({ protected_paths: policy.protected_paths.filter((p) => p !== path) });
   };
 
   const handleConfirmRemove = async () => {
@@ -495,6 +545,108 @@ export const RepositoryDetailPage: React.FC = () => {
                 <span className="text-slate-300">{log.message}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Phase 6.5: Decision Engine & Autonomy Governance */}
+      {policy && (
+        <div className="rounded-xl border border-subtle bg-card overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-subtle flex items-center gap-2">
+            <Gavel className="w-4 h-4 text-blue-400" />
+            <h2 className="text-xs font-semibold text-slate-200 font-mono uppercase tracking-wide">Autonomy Policy</h2>
+            <span className="text-[11px] text-slate-500 ml-1">— controls how far TALOS may act without asking first</span>
+          </div>
+          <div className="p-5 space-y-5">
+            <div>
+              <p className="text-xs text-slate-400 mb-2">Automation Mode</p>
+              <div className="flex items-center gap-2">
+                {AUTOMATION_MODES.map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => handlePolicyChange({ mode })}
+                    disabled={policySaving}
+                    className={`px-3 py-1.5 rounded-full text-[11px] font-mono font-semibold border transition-colors disabled:opacity-50 ${
+                      policy.mode === mode
+                        ? 'bg-blue-600/20 text-blue-400 border-blue-500/30'
+                        : 'bg-white/[0.03] text-text-muted border-subtle hover:text-text-secondary'
+                    }`}
+                  >
+                    {mode.charAt(0) + mode.slice(1).toLowerCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              {[
+                { key: 'security_patch_action', label: 'Security Patches', options: STANDARD_TIER_ACTIONS },
+                { key: 'patch_update_action', label: 'Patch Dependency Updates', options: STANDARD_TIER_ACTIONS },
+                { key: 'minor_update_action', label: 'Minor Dependency Updates', options: STANDARD_TIER_ACTIONS },
+                { key: 'major_update_action', label: 'Major Dependency Updates', options: HARD_TIER_ACTIONS },
+              ].map((tier) => (
+                <div key={tier.key} className="p-3 rounded-lg bg-slate-950/50 border border-subtle/70 flex items-center justify-between gap-3">
+                  <span className="text-slate-300 font-medium">{tier.label}</span>
+                  <select
+                    value={(policy as any)[tier.key]}
+                    disabled={policySaving}
+                    onChange={(e) => handlePolicyChange({ [tier.key]: e.target.value } as Partial<AutomationPolicy>)}
+                    className="bg-input border border-muted rounded-md px-2 py-1 text-[11px] font-mono text-text-primary focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                  >
+                    {tier.options.map((opt) => (
+                      <option key={opt} value={opt}>{TIER_LABEL[opt]}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-4 border-t border-subtle/50 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-slate-200 font-medium">Protected Areas</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Changes affecting these paths require additional human control, regardless of mode.</p>
+                </div>
+                <select
+                  value={policy.protected_path_action}
+                  disabled={policySaving}
+                  onChange={(e) => handlePolicyChange({ protected_path_action: e.target.value as TierAction })}
+                  className="bg-input border border-muted rounded-md px-2 py-1 text-[11px] font-mono text-text-primary focus:outline-none focus:border-blue-500 disabled:opacity-50 shrink-0"
+                >
+                  {HARD_TIER_ACTIONS.map((opt) => (
+                    <option key={opt} value={opt}>{TIER_LABEL[opt]}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {policy.protected_paths.map((path) => (
+                  <span key={path} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03] border border-subtle text-[11px] font-mono text-slate-300">
+                    {path}
+                    <button onClick={() => handleRemoveProtectedPath(path)} disabled={policySaving} className="text-slate-500 hover:text-red-400 disabled:opacity-50">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newProtectedPath}
+                  onChange={(e) => setNewProtectedPath(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddProtectedPath(); }}
+                  placeholder="e.g. src/billing/**"
+                  className="flex-1 bg-input border border-muted rounded-lg px-3 py-1.5 text-xs font-mono text-text-primary placeholder-text-muted focus:outline-none focus:border-blue-500"
+                />
+                <button onClick={handleAddProtectedPath} disabled={policySaving || !newProtectedPath.trim()} className="btn btn-secondary text-xs flex items-center gap-1 disabled:opacity-50">
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add</span>
+                </button>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-500 pt-2 border-t border-subtle/50">
+              Major dependency updates and protected-path changes can never be set to Auto Execute. TALOS never merges anything, in any mode.
+            </p>
           </div>
         </div>
       )}

@@ -129,6 +129,25 @@ async def lifespan(app: FastAPI):
             await conn.execute(text(
                 f"ALTER TABLE pull_requests ADD COLUMN IF NOT EXISTS {column} {coltype}"
             ))
+
+        # Phase 6.5: Decision Engine & Autonomy Governance — decision fields added
+        # to the pre-existing maintenance_jobs table (repository_automation_policies
+        # is a brand-new table, already handled by create_all above).
+        for column, coltype in [
+            ("decision", "VARCHAR"),
+            ("decision_reason", "TEXT"),
+            ("decision_policy", "VARCHAR"),
+            ("decision_matched_rules", "JSON"),
+            ("decision_blocked_by", "JSON"),
+            ("requires_approval", "BOOLEAN DEFAULT FALSE"),
+            ("approved_at", "TIMESTAMP WITH TIME ZONE"),
+            ("rejected_at", "TIMESTAMP WITH TIME ZONE"),
+            ("rejection_reason", "TEXT"),
+            ("blocking_job_id", "INTEGER"),
+        ]:
+            await conn.execute(text(
+                f"ALTER TABLE maintenance_jobs ADD COLUMN IF NOT EXISTS {column} {coltype}"
+            ))
     logger.info("Database initialization complete.")
     yield
     # Shutdown

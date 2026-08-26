@@ -31,6 +31,19 @@ class MaintenanceJobResponse(BaseModel):
     status: str
     risk_level: Optional[str] = None
     risk_reason: Optional[str] = None
+
+    # Phase 6.5: Decision Engine & Autonomy Governance
+    decision: Optional[str] = None
+    decision_reason: Optional[str] = None
+    decision_policy: Optional[str] = None
+    decision_matched_rules: Optional[List[str]] = None
+    decision_blocked_by: Optional[List[str]] = None
+    requires_approval: bool = False
+    approved_at: Optional[datetime] = None
+    rejected_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    blocking_job_id: Optional[int] = None
+
     created_at: datetime
     completed_at: Optional[datetime] = None
     attempts: List[PatchAttemptResponse] = []

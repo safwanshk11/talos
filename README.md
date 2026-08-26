@@ -1,6 +1,6 @@
 # TALOS — Autonomous Repository Maintenance System
 
-[![Phase 6 Complete](https://img.shields.io/badge/Phase%206-Autonomous%20Operations%20Dashboard-blue.svg)](#)
+[![Phase 6.5 Complete](https://img.shields.io/badge/Phase%206.5-Decision%20Engine%20%26%20Autonomy%20Governance-blue.svg)](#)
 [![Stack](https://img.shields.io/badge/Tech%20Stack-FastAPI%20%7C%20React%20%7C%20PostgreSQL%20%7C%20Docker-brightgreen.svg)](#)
 
 TALOS is an autonomous repository maintenance system. It continuously monitors software repositories, detects routine maintenance problems, understands what needs to change, creates isolated fixes, verifies those fixes through real engineering checks, and delivers review-ready pull requests.
@@ -20,23 +20,23 @@ WATCH  ──►  DETECT  ──►  UNDERSTAND  ──►  PLAN  ──►  PAT
 
 ---
 
-## Current Status: Phase 6 Complete
+## Current Status: Phase 6.5 Complete
 
-Phase 6 turns TALOS into a coherent **autonomous operations control center**: a real visual identity (near-black design system, landing/login pages, animated app shell) plus a cross-repository dashboard built entirely from data the backend already produces — no fabricated metrics, no fake progress.
+Phase 6.5 answers the question earlier phases left open — **who decides whether TALOS should act in the first place?** TALOS is now a policy-governed autonomous operator, not just a pipeline that runs whenever a human clicks a button.
 
-1. **Command Center**: STATUS / ATTENTION / **Active Operations** / Recent Outcomes / **Repository Health**, aggregated client-side across existing per-repo endpoints — no new backend rollup endpoints.
-2. **Live Job-State Updates**: polling (`usePolling`, 8s, only while something is active) — the honest choice given no SSE/WebSocket infra exists. No simulated progress bars.
-3. **Job Detail, Tabbed**: Overview / Analysis / Patch / Verification / Delivery / Activity — a tab appears only once its backing data actually exists, all sourced from real stored evidence (the same [Verification Evidence Integrity Rule](PHASES.md#verification-evidence-integrity-rule) from Phase 4).
-4. **Maintenance Bay & Review Queue**: Maintenance Bay is the working-issues surface with real filters; Review Queue is the human PR handoff surface — real `PullRequest` rows, on-demand GitHub status sync, never auto-merged.
-5. **Activity Log**: real cross-repository `ActionLog` records (replacing previously hardcoded placeholder entries), with filters and search.
-6. **New Visual System**: near-black theme, a real marketing landing page, a login page built on TALOS's existing GitHub OAuth/PAT flow (no fake auth), an animated app shell with sidebar navigation, and a shared Framer Motion animation system (route transitions, scroll reveals, sliding active-tab indicators).
+1. **Deterministic Decision Engine**: every maintenance issue is evaluated — repository state, risk, protected paths, verification capability, conflicts — against a fixed precedence order before TALOS touches anything. No AI call ever decides whether autonomous action is safe; the model only supplies structured input the engine evaluates.
+2. **Five real outcomes**: `AUTO_EXECUTE` (patch → verify → deliver, chained, still human-reviewed), `PREPARE_ONLY` (patch and stop), `APPROVAL_REQUIRED` (persists the exact plan already produced and waits for a real **Approve & Continue** / **Reject**), `ESCALATE`, `IGNORE` — plus `BLOCKED_BY_CONFLICT` for repository-level collision.
+3. **Per-repository Autonomy Policy**: Conservative / Balanced *(default)* / Autonomous presets, four editable tiers (security patches, patch/minor/major dependency updates), and a protected-paths editor (`**/auth/**`, `**/payments/**`, etc.) — major updates and protected paths can never be set to auto-execute, enforced server-side.
+4. **Backend-enforced, not a UI suggestion**: approval/rejection endpoints re-validate job state server-side; a duplicate `prepare-fix` call on an issue already awaiting approval is deterministically re-blocked by the same conflict check, not silently allowed through.
+5. **Explainable, not confident**: every decision shows the real rules that matched and what blocked it — never a fabricated confidence score — visible in a new Job Detail **Decision** tab and the real Action Ledger.
 
-Earlier phases remain fully active and are what Phase 6 builds on — see **[PHASES.md](PHASES.md)** for the complete build history, architecture notes, and known limitations of every phase:
+Earlier phases remain fully active and are what Phase 6.5 builds on — see **[PHASES.md](PHASES.md)** for the complete build history, architecture notes, and known limitations of every phase:
 - **Phase 1** — GitHub integration, repository connection & dashboard
 - **Phase 2** — repository scanning, OSV vulnerability detection, automation readiness
 - **Phase 3** — AI-driven planning & patch generation (Ollama / Gemini), isolated branches, real diffs
 - **Phase 4** — sandboxed verification engine, original-vulnerability re-scan, evidence-over-confidence reporting
 - **Phase 5** — real GitHub pushes & pull requests, hard server-side delivery gate, never auto-merged
+- **Phase 6** — near-black visual system, autonomous operations Command Center, tabbed Job Detail, Maintenance Bay & Review Queue
 
 ---
 
@@ -89,8 +89,10 @@ talos/
 │   │       ├── patch_safety.py           # Path traversal / size / count enforcement
 │   │       ├── verification/             # Phase 4: sandbox execution, plan builder, orchestrator
 │   │       ├── delivery_service.py       # Phase 5: commit reuse, artifact integrity, push, PR creation
+│   │       ├── decision_service.py       # Phase 6.5: deterministic Decision Engine + policy/conflict services
 │   │       ├── scanner_service.py        # Phase 2 scan pipeline
 │   │       └── github_service.py         # GitHub REST API client
+│   ├── tests/             # pytest — includes Decision Engine unit tests
 │   └── Dockerfile
 ├── worker/               # Background Worker Architecture (reserved for Phase 5+)
 ├── docker-compose.yml    # Orchestration for PostgreSQL, Backend, Frontend
@@ -192,3 +194,4 @@ To test the complete flow:
 8. Open a detected issue and click **Prepare Fix** to run the Phase 3 pipeline — TALOS gathers context, analyzes the issue, generates a risk-classified plan, creates an isolated branch, applies a deterministic dependency upgrade, and shows the real generated diff. The repository's primary branch is never touched.
 9. Once the patch is `PATCH_READY`, click **Run Verification** to run the Phase 4 pipeline — TALOS installs dependencies, builds, lints, tests, runs a security audit, and re-queries OSV to confirm the original advisory is actually gone, all inside an isolated sandbox container with no TALOS secrets. The report shows every check's real PASS/FAIL/SKIPPED — the patch is marked `VERIFIED` only if it earns it.
 10. Once the patch is `VERIFIED`, click **Create Pull Request** to run the Phase 5 pipeline — TALOS confirms the workspace still matches exactly what was verified, pushes the TALOS branch to GitHub, and opens a real pull request with an evidence-based description. The pipeline tracker shows `DELIVERING` complete and a **View on GitHub** link to the real, open PR. TALOS never merges it — that's on you.
+11. On the Repository Detail page, open **Autonomy Policy** to see the Phase 6.5 Decision Engine: switch modes (Conservative / Balanced / Autonomous), edit a tier's action, or add a protected path. Then click **Prepare Fix** on an issue — the Job Detail modal's new **Decision** tab shows exactly which policy and rules TALOS evaluated and why it landed on `AUTO_EXECUTE` / `APPROVAL_REQUIRED` / `ESCALATE`. If `APPROVAL_REQUIRED`, a real **Approve & Continue** / **Reject** pair is shown — approving resumes the exact plan already produced, never a new one.

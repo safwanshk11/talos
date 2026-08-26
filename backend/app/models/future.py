@@ -18,7 +18,8 @@ class MaintenanceIssue(Base):
     severity = Column(String, default="MEDIUM")  # CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN
     category = Column(String, default="vulnerability") # vulnerability, outdated_dependency, ci_failure, deprecated_api
     # OPEN, ANALYZING, PLANNING, PLANNED, SANDBOXING, PATCHING, PATCH_READY,
-    # VERIFYING, VERIFIED, VERIFICATION_FAILED, DELIVERED, FAILED, ESCALATED, RESOLVED
+    # VERIFYING, VERIFIED, VERIFICATION_FAILED, DELIVERED, FAILED, ESCALATED, RESOLVED,
+    # APPROVAL_REQUIRED, IGNORED, REJECTED_BY_USER (Phase 6.5: Decision Engine)
     status = Column(String, default="OPEN")
     
     # Vulnerability Specific Metadata
@@ -53,10 +54,26 @@ class MaintenanceJob(Base):
     # queued, analyzing, planning, planned, sandboxing, patching, patch_ready,
     # verifying, verified, verification_failed, delivering, delivered,
     # delivery_failed, resolved (no patch needed — already fixed upstream),
-    # failed, escalated
+    # failed, escalated, waiting_for_approval (Phase 6.5: Decision Engine),
+    # blocked_conflict, ignored, rejected
     status = Column(String, default="queued")
     risk_level = Column(String, nullable=True) # low, medium, high
     risk_reason = Column(Text, nullable=True)
+
+    # Phase 6.5: Decision Engine & Autonomy Governance — every job records the
+    # decision that gated it, not just a badge: which policy was applied, which
+    # deterministic rules matched, and (for BLOCKED_BY_CONFLICT) what blocked it.
+    # AUTO_EXECUTE, PREPARE_ONLY, APPROVAL_REQUIRED, ESCALATE, IGNORE, BLOCKED_BY_CONFLICT
+    decision = Column(String, nullable=True)
+    decision_reason = Column(Text, nullable=True)
+    decision_policy = Column(String, nullable=True)  # policy mode snapshot at decision time
+    decision_matched_rules = Column(JSON, nullable=True)
+    decision_blocked_by = Column(JSON, nullable=True)
+    requires_approval = Column(Boolean, default=False)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    rejected_at = Column(DateTime(timezone=True), nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    blocking_job_id = Column(Integer, nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime(timezone=True), nullable=True)
@@ -79,7 +96,7 @@ class PatchAttempt(Base):
     commit_sha = Column(String, nullable=True)
     patch_diff = Column(Text, nullable=True)
     attempt_number = Column(Integer, default=1)
-    status = Column(String, default="created")  # created, ready, failed, escalated
+    status = Column(String, default="created")  # created, ready, failed, escalated, awaiting_approval
 
     # AI reasoning trail for this attempt
     ai_provider = Column(String, nullable=True)

@@ -3,7 +3,9 @@
  * out", so Command Center / Maintenance Bay / Repository detail agree. */
 
 export const ACTIVE_STATUSES = ['ANALYZING', 'PLANNING', 'PLANNED', 'SANDBOXING', 'PATCHING', 'VERIFYING', 'DELIVERING'];
-export const ATTENTION_STATUSES = ['VERIFICATION_FAILED', 'DELIVERY_FAILED', 'ESCALATED', 'FAILED'];
+// APPROVAL_REQUIRED is a Phase 6.5 Decision Engine outcome: TALOS understood
+// the issue but is deliberately waiting on a human before it acts further.
+export const ATTENTION_STATUSES = ['VERIFICATION_FAILED', 'DELIVERY_FAILED', 'ESCALATED', 'FAILED', 'APPROVAL_REQUIRED'];
 export const CLOSED_STATUSES = ['RESOLVED', 'DELIVERED'];
 
 export function isActiveStatus(status: string): boolean {

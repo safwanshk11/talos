@@ -92,7 +92,10 @@ export type MaintenanceIssueStatus =
   | 'DELIVERED'
   | 'FAILED'
   | 'ESCALATED'
-  | 'RESOLVED';
+  | 'RESOLVED'
+  | 'APPROVAL_REQUIRED'
+  | 'IGNORED'
+  | 'REJECTED_BY_USER';
 
 export interface MaintenanceIssue {
   id: number;
@@ -175,7 +178,29 @@ export type MaintenanceJobStatus =
   | 'delivery_failed'
   | 'resolved'
   | 'failed'
-  | 'escalated';
+  | 'escalated'
+  | 'waiting_for_approval'
+  | 'blocked_conflict'
+  | 'ignored'
+  | 'rejected';
+
+// Phase 6.5: Decision Engine & Autonomy Governance
+export type DecisionType = 'AUTO_EXECUTE' | 'PREPARE_ONLY' | 'APPROVAL_REQUIRED' | 'ESCALATE' | 'IGNORE' | 'BLOCKED_BY_CONFLICT';
+export type AutomationMode = 'CONSERVATIVE' | 'BALANCED' | 'AUTONOMOUS';
+export type TierAction = 'AUTO_EXECUTE' | 'PREPARE_ONLY' | 'APPROVAL_REQUIRED' | 'ESCALATE';
+
+export interface AutomationPolicy {
+  id: number;
+  repository_id: number;
+  mode: AutomationMode;
+  security_patch_action: TierAction;
+  patch_update_action: TierAction;
+  minor_update_action: TierAction;
+  major_update_action: TierAction;
+  protected_path_action: TierAction;
+  protected_paths: string[];
+  updated_at: string;
+}
 
 export interface MaintenanceJob {
   id: number;
@@ -184,6 +209,16 @@ export interface MaintenanceJob {
   status: MaintenanceJobStatus;
   risk_level?: 'low' | 'medium' | 'high';
   risk_reason?: string;
+  decision?: DecisionType;
+  decision_reason?: string;
+  decision_policy?: string;
+  decision_matched_rules?: string[];
+  decision_blocked_by?: string[];
+  requires_approval: boolean;
+  approved_at?: string;
+  rejected_at?: string;
+  rejection_reason?: string;
+  blocking_job_id?: number;
   created_at: string;
   completed_at?: string;
   attempts: PatchAttempt[];
