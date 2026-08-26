@@ -13,7 +13,7 @@ from app.schemas.auth import (
 )
 from app.services.github_service import GitHubService
 from app.core.security import create_access_token
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_or_create_singleton_user
 from app.core.config import settings
 
 router = APIRouter()
@@ -62,11 +62,14 @@ async def get_github_status(
 @router.post("/github/pat", response_model=Token)
 async def connect_github_pat(
     payload: GitHubConnectPAT,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    # Verify PAT with GitHub API
+    # This endpoint IS the login mechanism — it must be reachable with no
+    # prior session (get_current_user would 401 in production before the
+    # PAT is ever checked, making first login impossible). The PAT's own
+    # verification against GitHub's API below is the credential check.
     gh_user = await GitHubService.verify_pat(payload.personal_access_token)
+    current_user = await get_or_create_singleton_user(db)
 
     # Check or update existing connection
     stmt = select(GitHubConnection).where(GitHubConnection.user_id == current_user.id)
@@ -124,9 +127,12 @@ async def get_github_oauth_url():
 @router.post("/github/callback", response_model=Token)
 async def github_oauth_callback(
     payload: GitHubOAuthCode,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    # Same reasoning as /github/pat above: this endpoint IS the login
+    # mechanism for the OAuth path, so it must not require an existing
+    # session. A successfully exchanged code (verified against GitHub
+    # below) is the credential check.
     oauth_res = await GitHubService.exchange_oauth_code(payload.code)
     token = oauth_res.get("access_token")
     scopes = oauth_res.get("scope", "")
@@ -135,6 +141,7 @@ async def github_oauth_callback(
         raise HTTPException(status_code=400, detail="Failed to obtain access token from GitHub.")
 
     gh_user = await GitHubService.verify_pat(token)
+    current_user = await get_or_create_singleton_user(db)
 
     stmt = select(GitHubConnection).where(GitHubConnection.user_id == current_user.id)
     res = await db.execute(stmt)
