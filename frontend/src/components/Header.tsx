@@ -13,7 +13,7 @@ export const Header: React.FC<HeaderProps> = ({ user, ghStatus, onOpenConnectMod
     <header className="h-14 border-b border-subtle bg-dark/80 backdrop-blur-md px-6 flex items-center justify-end sticky top-0 z-10 shrink-0">
       <div className="flex items-center gap-3">
         <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-white/[0.04] text-text-muted border border-subtle">
-          v1.0.0-phase6
+          v1.0.0-phase7
         </span>
 
         {ghStatus?.connected ? (

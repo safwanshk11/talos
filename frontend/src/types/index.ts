@@ -39,8 +39,33 @@ export interface Repository {
   connection_status: 'connected' | 'error' | 'syncing' | 'disconnected';
   last_checked_at: string;
   last_scanned_at?: string;
+
+  // Phase 7: Continuous Autonomous Monitoring
+  monitoring_schedule: 'manual' | 'daily' | 'weekly';
+  scan_on_relevant_push: boolean;
+  last_automatic_scan_at?: string;
+  last_trigger?: TriggerType;
+
   created_at: string;
   updated_at: string;
+}
+
+export type TriggerType = 'manual' | 'scheduled_scan' | 'github_push';
+
+export interface RepositoryEvent {
+  id: number;
+  repository_id?: number;
+  provider: string;
+  event_type: string;
+  delivery_id?: string;
+  branch?: string;
+  commit_sha?: string;
+  received_at: string;
+  processed_at?: string;
+  status: 'received' | 'processed' | 'skipped' | 'failed';
+  skip_reason?: string;
+  triggered_scan_id?: number;
+  event_metadata?: Record<string, any>;
 }
 
 export interface GitHubRepoImportItem {
@@ -73,6 +98,7 @@ export interface RepositoryScan {
   ecosystem?: string;
   total_dependencies: number;
   issues_detected: number;
+  trigger?: TriggerType;
   started_at: string;
   completed_at?: string;
   error_message?: string;
@@ -209,6 +235,7 @@ export interface MaintenanceJob {
   status: MaintenanceJobStatus;
   risk_level?: 'low' | 'medium' | 'high';
   risk_reason?: string;
+  trigger?: TriggerType;
   decision?: DecisionType;
   decision_reason?: string;
   decision_policy?: string;

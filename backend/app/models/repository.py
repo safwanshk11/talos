@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.orm import relationship
 from app.db.session import Base
 
@@ -32,6 +32,18 @@ class Repository(Base):
     last_checked_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     last_scanned_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Phase 7: Continuous Autonomous Monitoring. Defaults to "manual" rather than
+    # the spec's suggested "daily" default — this connects to real, already-live
+    # GitHub repositories, and a newly-shipped background scheduler should not
+    # start autonomously scanning/patching them without the owner opting in per
+    # repository. scan_on_relevant_push is harmless at "True" by default since it
+    # can only ever fire from a webhook GitHub delivers to a URL the owner
+    # explicitly configured — nothing here can trigger it on its own.
+    monitoring_schedule = Column(String, default="manual")  # manual, daily, weekly
+    scan_on_relevant_push = Column(Boolean, default=True)
+    last_automatic_scan_at = Column(DateTime(timezone=True), nullable=True)
+    last_trigger = Column(String, nullable=True)  # manual, scheduled_scan, github_push
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -46,3 +58,4 @@ class Repository(Base):
     action_logs = relationship("ActionLog", back_populates="repository", cascade="all, delete-orphan")
     pull_requests = relationship("PullRequest", back_populates="repository", cascade="all, delete-orphan")
     automation_policy = relationship("RepositoryAutomationPolicy", back_populates="repository", uselist=False, cascade="all, delete-orphan")
+    events = relationship("RepositoryEvent", back_populates="repository", cascade="all, delete-orphan")

@@ -59,6 +59,8 @@ class MaintenanceJob(Base):
     status = Column(String, default="queued")
     risk_level = Column(String, nullable=True) # low, medium, high
     risk_reason = Column(Text, nullable=True)
+    # Phase 7: provenance — manual, scheduled_scan, github_push
+    trigger = Column(String, default="manual")
 
     # Phase 6.5: Decision Engine & Autonomy Governance — every job records the
     # decision that gated it, not just a badge: which policy was applied, which

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -7,10 +8,25 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.db.session import engine
 from app.db.base import Base
-from app.api.v1 import health, auth, repositories
+from app.api.v1 import health, auth, repositories, webhooks
+from app.services.monitoring_service import SchedulerService
 
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger("talos")
+
+
+async def _scheduler_loop():
+    """Phase 7: the simplest deployment-compatible scheduler — an asyncio task
+    inside this same backend process (see monitoring_service.SchedulerService).
+    No new worker/queue infrastructure. A failure in one tick is logged and
+    never crashes the loop."""
+    interval_seconds = max(60, settings.MONITORING_SCHEDULER_INTERVAL_MINUTES * 60)
+    while True:
+        try:
+            await SchedulerService.tick()
+        except Exception:
+            logger.exception("Monitoring scheduler tick failed.")
+        await asyncio.sleep(interval_seconds)
 
 
 @asynccontextmanager
@@ -148,16 +164,68 @@ async def lifespan(app: FastAPI):
             await conn.execute(text(
                 f"ALTER TABLE maintenance_jobs ADD COLUMN IF NOT EXISTS {column} {coltype}"
             ))
+
+        # Phase 7: Continuous Autonomous Monitoring — monitoring config added to
+        # repositories; provenance columns added to maintenance_jobs/repository_scans
+        # (repository_events is a brand-new table, already handled by create_all above).
+        for column, coltype in [
+            ("monitoring_schedule", "VARCHAR DEFAULT 'manual'"),
+            ("scan_on_relevant_push", "BOOLEAN DEFAULT TRUE"),
+            ("last_automatic_scan_at", "TIMESTAMP WITH TIME ZONE"),
+            ("last_trigger", "VARCHAR"),
+        ]:
+            await conn.execute(text(
+                f"ALTER TABLE repositories ADD COLUMN IF NOT EXISTS {column} {coltype}"
+            ))
+        await conn.execute(text(
+            "ALTER TABLE maintenance_jobs ADD COLUMN IF NOT EXISTS trigger VARCHAR DEFAULT 'manual'"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE repository_scans ADD COLUMN IF NOT EXISTS trigger VARCHAR DEFAULT 'manual'"
+        ))
+
+        # Phase 7 section 43 (Durable Work): a scan/job left mid-flight by a
+        # process restart (crash, redeploy) would otherwise sit in a "running"/
+        # "active" state forever — and Phase 7's own concurrency locks
+        # (has_active_scan / has_active_job) would then treat that repository
+        # as permanently busy, silently blocking all future autonomous work.
+        # Reconcile on every startup: mark them failed and diagnosable rather
+        # than pretending exactly-once execution survived a restart it didn't.
+        await conn.execute(text(
+            "UPDATE maintenance_issues SET status = 'FAILED' "
+            "WHERE status IN ('ANALYZING','PLANNING','PLANNED','SANDBOXING','PATCHING','VERIFYING','DELIVERING') "
+            "AND id IN ("
+            "  SELECT issue_id FROM maintenance_jobs "
+            "  WHERE status IN ('analyzing','planning','planned','sandboxing','patching','verifying','delivering') "
+            "  AND issue_id IS NOT NULL"
+            ")"
+        ))
+        await conn.execute(text(
+            "UPDATE maintenance_jobs SET status = 'failed', completed_at = NOW() "
+            "WHERE status IN ('analyzing','planning','planned','sandboxing','patching','verifying','delivering')"
+        ))
+        await conn.execute(text(
+            "UPDATE repository_scans SET status = 'failed', error_message = 'Interrupted by server restart.', completed_at = NOW() "
+            "WHERE status IN ('queued','running')"
+        ))
     logger.info("Database initialization complete.")
+
+    scheduler_task = None
+    if settings.MONITORING_SCHEDULER_ENABLED:
+        scheduler_task = asyncio.create_task(_scheduler_loop())
+        logger.info(f"Monitoring scheduler started (interval={settings.MONITORING_SCHEDULER_INTERVAL_MINUTES}m).")
+
     yield
     # Shutdown
+    if scheduler_task:
+        scheduler_task.cancel()
     logger.info("Shutting down TALOS Core API...")
 
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="TALOS Core Backend API — Autonomous Repository Maintenance System",
-    version="1.0.0-phase6",
+    version="1.0.0-phase7",
     lifespan=lifespan
 )
 
@@ -174,6 +242,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth & GitHub"])
 app.include_router(repositories.router, prefix="/api/v1/repositories", tags=["Repositories"])
+app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"])
 
 
 @app.get("/")

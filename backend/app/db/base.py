@@ -15,6 +15,7 @@ from app.models.future import (
     PullRequest,
 )
 from app.models.policy import RepositoryAutomationPolicy
+from app.models.monitoring import RepositoryEvent
 
 __all__ = [
     "Base",
@@ -32,4 +33,5 @@ __all__ = [
     "ActionLog",
     "PullRequest",
     "RepositoryAutomationPolicy",
+    "RepositoryEvent",
 ]

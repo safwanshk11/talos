@@ -19,7 +19,7 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         "status": "ok",
         "service": "TALOS Core API",
         "database": db_status,
-        "version": "1.0.0-phase6",
+        "version": "1.0.0-phase7",
         # Read-only traceability — never expose secrets (GEMINI_API_KEY etc.) here.
         "ai_provider": settings.AI_PROVIDER,
         "ai_model": settings.AI_MODEL,

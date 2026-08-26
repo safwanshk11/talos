@@ -9,9 +9,10 @@ import { useCrossRepoData } from '../hooks/useCrossRepoData';
 import { useDashboardStats } from '../hooks/useDashboardStats';
 import { usePolling } from '../hooks/usePolling';
 import { ACTIVE_STATUSES, ATTENTION_STATUSES } from '../lib/statusGroups';
-import { AlertTriangle, GitPullRequest, CheckCircle2, ChevronRight, ExternalLink, Loader2, ArrowRight, Clock } from 'lucide-react';
+import { AlertTriangle, GitPullRequest, CheckCircle2, ChevronRight, ExternalLink, Loader2, ArrowRight, Clock, Radar } from 'lucide-react';
 
 const POLL_INTERVAL_MS = 8000;
+const SCHEDULE_HOURS: Record<string, number> = { daily: 24, weekly: 24 * 7 };
 
 function timeAgo(iso?: string): string {
   if (!iso) return 'Never';
@@ -21,6 +22,15 @@ function timeAgo(iso?: string): string {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+function timeUntil(target: Date): string {
+  const mins = Math.round((target.getTime() - Date.now()) / 60000);
+  if (mins <= 0) return 'due now';
+  if (mins < 60) return `in ${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `in ${hours}h`;
+  return `in ${Math.round(hours / 24)}d`;
 }
 
 export const CommandCenterPage: React.FC = () => {
@@ -60,6 +70,23 @@ export const CommandCenterPage: React.FC = () => {
       .map((r) => ({ repo: r, issueCount: issueCountByRepo[r.id] || 0 }));
   }, [repositories, issues]);
 
+  // Phase 7: computed entirely from data already fetched — no new endpoint.
+  // Only shown when it can be calculated accurately (at least one repo on a
+  // real schedule with a known last-scan time).
+  const monitoringSummary = useMemo(() => {
+    const activeCount = repositories.filter((r) => r.monitoring_status === 'active').length;
+    const pausedCount = repositories.length - activeCount;
+    let nextCheck: Date | null = null;
+    for (const r of repositories) {
+      if (r.monitoring_status !== 'active' || !(r.monitoring_schedule in SCHEDULE_HOURS)) continue;
+      const last = r.last_automatic_scan_at || r.last_scanned_at;
+      const base = last ? new Date(last) : new Date();
+      const due = last ? new Date(base.getTime() + SCHEDULE_HOURS[r.monitoring_schedule] * 3600_000) : base;
+      if (!nextCheck || due < nextCheck) nextCheck = due;
+    }
+    return { activeCount, pausedCount, nextCheck };
+  }, [repositories]);
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
       <PageHeader
@@ -67,6 +94,22 @@ export const CommandCenterPage: React.FC = () => {
         title="Command Center"
         subtitle="Real-time overview of autonomous repository operations."
       />
+
+      {!loading && repositories.length > 0 && (
+        <div className="flex items-center gap-2 text-xs text-text-muted font-mono">
+          <Radar className="w-3.5 h-3.5 text-blue-400" />
+          <span>
+            {repositories.length} repositor{repositories.length === 1 ? 'y' : 'ies'} monitored — {monitoringSummary.activeCount} active
+            {monitoringSummary.pausedCount > 0 ? `, ${monitoringSummary.pausedCount} paused` : ''}
+          </span>
+          {monitoringSummary.nextCheck && (
+            <>
+              <span className="text-text-muted/50">·</span>
+              <span>Next scheduled health check {timeUntil(monitoringSummary.nextCheck)}</span>
+            </>
+          )}
+        </div>
+      )}
 
       <MetricsOverview stats={stats} loading={statsLoading} />
 

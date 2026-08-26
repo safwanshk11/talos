@@ -10,6 +10,7 @@ class RepositoryScanResponse(BaseModel):
     ecosystem: Optional[str] = None
     total_dependencies: int = 0
     issues_detected: int = 0
+    trigger: Optional[str] = "manual"
     started_at: datetime
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None

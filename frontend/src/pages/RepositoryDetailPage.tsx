@@ -39,7 +39,27 @@ import {
   Gavel,
   Plus,
   X,
+  Radar,
+  Webhook,
 } from 'lucide-react';
+
+const SCHEDULE_OPTIONS: Array<'manual' | 'daily' | 'weekly'> = ['manual', 'daily', 'weekly'];
+
+function timeAgo(iso?: string): string {
+  if (!iso) return 'Never';
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+const TRIGGER_LABEL: Record<string, string> = {
+  manual: 'Manual',
+  scheduled_scan: 'Scheduled Health Check',
+  github_push: 'Push Event',
+};
 
 const AUTOMATION_MODES: AutomationMode[] = ['CONSERVATIVE', 'BALANCED', 'AUTONOMOUS'];
 const STANDARD_TIER_ACTIONS: TierAction[] = ['AUTO_EXECUTE', 'PREPARE_ONLY', 'APPROVAL_REQUIRED'];
@@ -143,6 +163,15 @@ export const RepositoryDetailPage: React.FC = () => {
       setRepo(updated);
     } catch (err: any) {
       alert(`Failed to update status: ${err.message}`);
+    }
+  };
+
+  const handleMonitoringSettingsChange = async (payload: { monitoring_schedule?: string; scan_on_relevant_push?: boolean }) => {
+    try {
+      const updated = await api.updateMonitoringSettings(repoId, payload);
+      setRepo(updated);
+    } catch (err: any) {
+      alert(`Failed to update monitoring settings: ${err.message}`);
     }
   };
 
@@ -416,6 +445,67 @@ export const RepositoryDetailPage: React.FC = () => {
             <p className="text-xs text-slate-500 italic">No commit metadata synced yet.</p>
           )}
         </div>
+      </div>
+
+      {/* Phase 7: Continuous Autonomous Monitoring */}
+      <div className="p-5 rounded-xl bg-card border border-subtle space-y-4">
+        <div className="flex items-center gap-2">
+          <Radar className="w-4 h-4 text-blue-400" />
+          <h2 className="text-xs font-semibold text-slate-200 font-mono uppercase tracking-wide">Monitoring</h2>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono">
+          <div className="p-3 rounded bg-slate-950/50 border border-subtle/70">
+            <span className="text-slate-500 block text-[11px] mb-1">STATUS</span>
+            <span className={isPaused ? 'text-amber-400 font-bold' : 'text-emerald-400 font-bold'}>{repo.monitoring_status.toUpperCase()}</span>
+          </div>
+          <div className="p-3 rounded bg-slate-950/50 border border-subtle/70 flex items-center justify-between gap-2">
+            <div>
+              <span className="text-slate-500 block text-[11px] mb-1">SCHEDULE</span>
+              <span className="text-slate-200 font-semibold">{repo.monitoring_schedule.toUpperCase()}</span>
+            </div>
+            <select
+              value={repo.monitoring_schedule}
+              disabled={isPaused}
+              onChange={(e) => handleMonitoringSettingsChange({ monitoring_schedule: e.target.value })}
+              className="bg-input border border-muted rounded px-1.5 py-1 text-[10px] text-text-primary focus:outline-none focus:border-blue-500 disabled:opacity-50"
+            >
+              {SCHEDULE_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          </div>
+          <div className="p-3 rounded bg-slate-950/50 border border-subtle/70 flex items-center justify-between gap-2">
+            <div>
+              <span className="text-slate-500 block text-[11px] mb-1">RELEVANT PUSH SCAN</span>
+              <span className={repo.scan_on_relevant_push ? 'text-emerald-400 font-semibold' : 'text-slate-500 font-semibold'}>
+                {repo.scan_on_relevant_push ? 'ENABLED' : 'DISABLED'}
+              </span>
+            </div>
+            <button
+              onClick={() => handleMonitoringSettingsChange({ scan_on_relevant_push: !repo.scan_on_relevant_push })}
+              disabled={isPaused}
+              className="text-blue-400 hover:underline text-[10px] disabled:opacity-50 disabled:no-underline"
+            >
+              Toggle
+            </button>
+          </div>
+          <div className="p-3 rounded bg-slate-950/50 border border-subtle/70">
+            <span className="text-slate-500 block text-[11px] mb-1">LAST AUTOMATIC SCAN</span>
+            <span className="text-slate-300 font-semibold">{timeAgo(repo.last_automatic_scan_at)}</span>
+          </div>
+        </div>
+        {repo.last_trigger && (
+          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-mono">
+            <Webhook className="w-3 h-3" />
+            <span>Last trigger: {TRIGGER_LABEL[repo.last_trigger] || repo.last_trigger}</span>
+          </div>
+        )}
+        {isPaused && (
+          <p className="text-[11px] text-amber-400/80 font-mono">Scheduled and push-triggered scans are skipped while monitoring is paused.</p>
+        )}
+        <p className="text-[11px] text-slate-500 font-mono">
+          Continuous monitoring requires a GitHub webhook pointed at TALOS and/or the background scheduler — see Settings for setup status.
+        </p>
       </div>
 
       {/* Automation Readiness Assessment Card */}

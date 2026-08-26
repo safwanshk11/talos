@@ -13,6 +13,7 @@ import {
   PullRequest,
   HealthStatus,
   AutomationPolicy,
+  RepositoryEvent,
 } from '../types';
 
 const API_BASE = '/api/v1';
@@ -87,6 +88,15 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ monitoring_status: status }),
     }),
+
+  // Phase 7: Continuous Autonomous Monitoring
+  updateMonitoringSettings: (id: number, payload: { monitoring_schedule?: string; scan_on_relevant_push?: boolean }) =>
+    request<Repository>(`/repositories/${id}/monitoring-settings`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  getRepositoryEvents: (id: number, limit = 30) =>
+    request<RepositoryEvent[]>(`/repositories/${id}/events?limit=${limit}`),
 
   // Phase 2: Scanning & Issues
   triggerScan: (id: number) => request<RepositoryScan>(`/repositories/${id}/scan`, { method: 'POST' }),

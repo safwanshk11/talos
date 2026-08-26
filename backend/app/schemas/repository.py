@@ -50,10 +50,22 @@ class RepositoryResponse(BaseModel):
     connection_status: str
     last_checked_at: datetime
     last_scanned_at: Optional[datetime] = None
+
+    # Phase 7: Continuous Autonomous Monitoring
+    monitoring_schedule: str = "manual"
+    scan_on_relevant_push: bool = True
+    last_automatic_scan_at: Optional[datetime] = None
+    last_trigger: Optional[str] = None
+
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class UpdateMonitoringSettingsRequest(BaseModel):
+    monitoring_schedule: Optional[str] = Field(None, description="'manual', 'daily', or 'weekly'")
+    scan_on_relevant_push: Optional[bool] = None
 
 
 class DashboardStatsResponse(BaseModel):

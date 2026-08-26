@@ -78,13 +78,15 @@ class PatchService:
     # ------------------------------------------------------------------ entrypoint
 
     @staticmethod
-    async def prepare_fix(db: AsyncSession, user_id: int, repository_id: int, issue_id: int, token: str) -> MaintenanceJob:
+    async def prepare_fix(db: AsyncSession, user_id: int, repository_id: int, issue_id: int, token: str, trigger: str = "manual") -> MaintenanceJob:
+        """`trigger` (Phase 7) records provenance only — manual/scheduled_scan/
+        github_push — and never changes what the Decision Engine permits."""
         repo = await PatchService._get_repository(db, user_id, repository_id)
         issue = await PatchService._get_issue(db, repository_id, issue_id)
 
         attempt_number = await PatchService._next_attempt_number(db, issue_id)
 
-        job = MaintenanceJob(repository_id=repository_id, issue_id=issue_id, status="analyzing")
+        job = MaintenanceJob(repository_id=repository_id, issue_id=issue_id, status="analyzing", trigger=trigger)
         db.add(job)
         await db.commit()
         await db.refresh(job)
@@ -708,6 +710,7 @@ class PatchService:
             "status": job.status,
             "risk_level": job.risk_level,
             "risk_reason": job.risk_reason,
+            "trigger": job.trigger,
             "decision": job.decision,
             "decision_reason": job.decision_reason,
             "decision_policy": job.decision_policy,

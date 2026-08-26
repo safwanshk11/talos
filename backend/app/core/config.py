@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.0-flash"
 
+    # Continuous Monitoring (Phase 7)
+    GITHUB_WEBHOOK_SECRET: str = ""
+    MONITORING_SCHEDULER_INTERVAL_MINUTES: int = 15
+    MONITORING_SCHEDULER_ENABLED: bool = True
+
     # Verification Engine (Phase 4)
     VERIFICATION_SANDBOX_IMAGE_NPM: str = "node:20-slim"
     VERIFICATION_SANDBOX_IMAGE_PIP: str = "python:3.11-slim"

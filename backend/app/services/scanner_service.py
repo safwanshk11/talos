@@ -105,9 +105,11 @@ class ScannerService:
 
     @staticmethod
     async def run_repository_scan(
-        db: AsyncSession, user_id: int, repository_id: int, token: str
+        db: AsyncSession, user_id: int, repository_id: int, token: str, trigger: str = "manual"
     ) -> RepositoryScan:
-        """Main pipeline executing full repository intelligence & detection."""
+        """Main pipeline executing full repository intelligence & detection.
+        `trigger` (Phase 7) records provenance only — manual/scheduled_scan/
+        github_push — and never changes scan behavior itself."""
         # 1. Fetch Repository record
         stmt = select(Repository).where(Repository.id == repository_id, Repository.user_id == user_id)
         result = await db.execute(stmt)
@@ -119,6 +121,7 @@ class ScannerService:
         scan = RepositoryScan(
             repository_id=repository_id,
             status="running",
+            trigger=trigger,
             started_at=datetime.now(timezone.utc)
         )
         db.add(scan)

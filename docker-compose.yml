@@ -49,6 +49,9 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash}
       - TALOS_WORKSPACE_ROOT=/tmp/talos_workspaces
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
+      - MONITORING_SCHEDULER_INTERVAL_MINUTES=${MONITORING_SCHEDULER_INTERVAL_MINUTES:-15}
+      - MONITORING_SCHEDULER_ENABLED=${MONITORING_SCHEDULER_ENABLED:-true}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

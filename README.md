@@ -1,6 +1,6 @@
 # TALOS — Autonomous Repository Maintenance System
 
-[![Phase 6.5 Complete](https://img.shields.io/badge/Phase%206.5-Decision%20Engine%20%26%20Autonomy%20Governance-blue.svg)](#)
+[![Phase 7 Complete](https://img.shields.io/badge/Phase%207-Continuous%20Autonomous%20Monitoring-blue.svg)](#)
 [![Stack](https://img.shields.io/badge/Tech%20Stack-FastAPI%20%7C%20React%20%7C%20PostgreSQL%20%7C%20Docker-brightgreen.svg)](#)
 
 TALOS is an autonomous repository maintenance system. It continuously monitors software repositories, detects routine maintenance problems, understands what needs to change, creates isolated fixes, verifies those fixes through real engineering checks, and delivers review-ready pull requests.
@@ -20,23 +20,25 @@ WATCH  ──►  DETECT  ──►  UNDERSTAND  ──►  PLAN  ──►  PAT
 
 ---
 
-## Current Status: Phase 6.5 Complete
+## Current Status: Phase 7 Complete
 
-Phase 6.5 answers the question earlier phases left open — **who decides whether TALOS should act in the first place?** TALOS is now a policy-governed autonomous operator, not just a pipeline that runs whenever a human clicks a button.
+Phase 7 removes the last requirement that a human keep the TALOS UI open and click buttons — **TALOS now watches continuously and acts selectively**, entirely from backend infrastructure, without ever bypassing Phase 6.5's governance.
 
-1. **Deterministic Decision Engine**: every maintenance issue is evaluated — repository state, risk, protected paths, verification capability, conflicts — against a fixed precedence order before TALOS touches anything. No AI call ever decides whether autonomous action is safe; the model only supplies structured input the engine evaluates.
-2. **Five real outcomes**: `AUTO_EXECUTE` (patch → verify → deliver, chained, still human-reviewed), `PREPARE_ONLY` (patch and stop), `APPROVAL_REQUIRED` (persists the exact plan already produced and waits for a real **Approve & Continue** / **Reject**), `ESCALATE`, `IGNORE` — plus `BLOCKED_BY_CONFLICT` for repository-level collision.
-3. **Per-repository Autonomy Policy**: Conservative / Balanced *(default)* / Autonomous presets, four editable tiers (security patches, patch/minor/major dependency updates), and a protected-paths editor (`**/auth/**`, `**/payments/**`, etc.) — major updates and protected paths can never be set to auto-execute, enforced server-side.
-4. **Backend-enforced, not a UI suggestion**: approval/rejection endpoints re-validate job state server-side; a duplicate `prepare-fix` call on an issue already awaiting approval is deterministically re-blocked by the same conflict check, not silently allowed through.
-5. **Explainable, not confident**: every decision shows the real rules that matched and what blocked it — never a fabricated confidence score — visible in a new Job Detail **Decision** tab and the real Action Ledger.
+1. **GitHub Webhook Intake**: `POST /api/v1/webhooks/github`, signature-verified (`X-Hub-Signature-256`) before any processing — no secret configured means every request is refused, never silently trusted. Handles `push` (relevance-filtered) and `pull_request` (syncs delivered-PR status from real GitHub state).
+2. **Selective, Not Constant**: a push only triggers a scan if it touches a maintenance-sensitive file (`package.json`, lockfiles, etc.) on the default branch — a docs-only push costs nothing. Duplicate webhook deliveries are idempotently ignored.
+3. **Scheduled Health Checks**: an opt-in per-repository schedule (manual / daily / weekly), run by a background task inside the existing backend process — no new worker/queue infrastructure.
+4. **Loop Prevention**: TALOS recognizes pushes to its own `talos/fix-*` branches and never reacts to its own patches.
+5. **Zero New Autonomy**: every autonomously-triggered issue still passes through the exact same Phase 6.5 Decision Engine a manual click would — continuous monitoring never increases what TALOS is permitted to do on its own.
+6. **Full Provenance**: every scan and job records whether it was `manual`, `scheduled_scan`, or `github_push` — visible in Job Detail and the real Action Ledger, never a fabricated narrative.
 
-Earlier phases remain fully active and are what Phase 6.5 builds on — see **[PHASES.md](PHASES.md)** for the complete build history, architecture notes, and known limitations of every phase:
+Earlier phases remain fully active and are what Phase 7 builds on — see **[PHASES.md](PHASES.md)** for the complete build history, architecture notes, and known limitations of every phase:
 - **Phase 1** — GitHub integration, repository connection & dashboard
 - **Phase 2** — repository scanning, OSV vulnerability detection, automation readiness
 - **Phase 3** — AI-driven planning & patch generation (Ollama / Gemini), isolated branches, real diffs
 - **Phase 4** — sandboxed verification engine, original-vulnerability re-scan, evidence-over-confidence reporting
 - **Phase 5** — real GitHub pushes & pull requests, hard server-side delivery gate, never auto-merged
 - **Phase 6** — near-black visual system, autonomous operations Command Center, tabbed Job Detail, Maintenance Bay & Review Queue
+- **Phase 6.5** — deterministic Decision Engine, per-repository autonomy policy, approval workflow, protected paths
 
 ---
 
@@ -90,11 +92,11 @@ talos/
 │   │       ├── verification/             # Phase 4: sandbox execution, plan builder, orchestrator
 │   │       ├── delivery_service.py       # Phase 5: commit reuse, artifact integrity, push, PR creation
 │   │       ├── decision_service.py       # Phase 6.5: deterministic Decision Engine + policy/conflict services
+│   │       ├── monitoring_service.py     # Phase 7: webhook/scheduled event intake, relevance filter, scheduler
 │   │       ├── scanner_service.py        # Phase 2 scan pipeline
 │   │       └── github_service.py         # GitHub REST API client
-│   ├── tests/             # pytest — includes Decision Engine unit tests
+│   ├── tests/             # pytest — Decision Engine + continuous monitoring unit/integration tests
 │   └── Dockerfile
-├── worker/               # Background Worker Architecture (reserved for Phase 5+)
 ├── docker-compose.yml    # Orchestration for PostgreSQL, Backend, Frontend
 ├── .env.example          # Environment Variables Template
 ├── PHASES.md             # Full phase-by-phase build history
@@ -195,3 +197,4 @@ To test the complete flow:
 9. Once the patch is `PATCH_READY`, click **Run Verification** to run the Phase 4 pipeline — TALOS installs dependencies, builds, lints, tests, runs a security audit, and re-queries OSV to confirm the original advisory is actually gone, all inside an isolated sandbox container with no TALOS secrets. The report shows every check's real PASS/FAIL/SKIPPED — the patch is marked `VERIFIED` only if it earns it.
 10. Once the patch is `VERIFIED`, click **Create Pull Request** to run the Phase 5 pipeline — TALOS confirms the workspace still matches exactly what was verified, pushes the TALOS branch to GitHub, and opens a real pull request with an evidence-based description. The pipeline tracker shows `DELIVERING` complete and a **View on GitHub** link to the real, open PR. TALOS never merges it — that's on you.
 11. On the Repository Detail page, open **Autonomy Policy** to see the Phase 6.5 Decision Engine: switch modes (Conservative / Balanced / Autonomous), edit a tier's action, or add a protected path. Then click **Prepare Fix** on an issue — the Job Detail modal's new **Decision** tab shows exactly which policy and rules TALOS evaluated and why it landed on `AUTO_EXECUTE` / `APPROVAL_REQUIRED` / `ESCALATE`. If `APPROVAL_REQUIRED`, a real **Approve & Continue** / **Reject** pair is shown — approving resumes the exact plan already produced, never a new one.
+12. On the Repository Detail page, open **Monitoring** to opt a repository into Phase 7 continuous scanning (Daily/Weekly) and toggle relevant-push scanning — off by default (`manual`) on every repository so a freshly-deployed scheduler never starts autonomously scanning real connected repositories without you asking. With `GITHUB_WEBHOOK_SECRET` set and a GitHub webhook pointed at `/api/v1/webhooks/github` (requires a public URL, e.g. via ngrok in local dev), a push touching `package.json`/a lockfile/`requirements.txt` on the default branch triggers a real scan automatically; a docs-only push or a push to one of TALOS's own `talos/fix-*` branches is correctly skipped. Command Center's header shows how many repositories are monitored and when the next scheduled check is due.

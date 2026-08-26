@@ -31,6 +31,7 @@ class MaintenanceJobResponse(BaseModel):
     status: str
     risk_level: Optional[str] = None
     risk_reason: Optional[str] = None
+    trigger: Optional[str] = None
 
     # Phase 6.5: Decision Engine & Autonomy Governance
     decision: Optional[str] = None

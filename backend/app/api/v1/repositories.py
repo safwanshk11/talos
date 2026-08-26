@@ -14,10 +14,13 @@ from app.schemas.repository import (
     RepositoryResponse,
     ConnectRepositoryRequest,
     ToggleMonitoringRequest,
+    UpdateMonitoringSettingsRequest,
     DashboardStatsResponse,
     GitHubRepoImportItem,
     LatestCommitSchema
 )
+from app.schemas.monitoring import RepositoryEventResponse
+from app.models.monitoring import RepositoryEvent
 from app.schemas.scan import (
     RepositoryScanResponse,
     MaintenanceIssueResponse,
@@ -63,6 +66,10 @@ def _to_repository_response(repo) -> RepositoryResponse:
         connection_status=repo.connection_status,
         last_checked_at=repo.last_checked_at,
         last_scanned_at=repo.last_scanned_at,
+        monitoring_schedule=repo.monitoring_schedule or "manual",
+        scan_on_relevant_push=repo.scan_on_relevant_push if repo.scan_on_relevant_push is not None else True,
+        last_automatic_scan_at=repo.last_automatic_scan_at,
+        last_trigger=repo.last_trigger,
         created_at=repo.created_at,
         updated_at=repo.updated_at
     )
@@ -179,6 +186,49 @@ async def toggle_monitoring(
         db, current_user.id, repository_id, payload.monitoring_status
     )
     return _to_repository_response(repo)
+
+
+@router.patch("/{repository_id}/monitoring-settings", response_model=RepositoryResponse)
+async def update_monitoring_settings(
+    repository_id: int,
+    payload: UpdateMonitoringSettingsRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Phase 7: continuous monitoring configuration — schedule (manual/daily/
+    weekly) and whether a relevant push should trigger a scan. Distinct from
+    /monitoring (active/paused), which remains the authoritative on/off switch
+    Phase 7 respects everywhere (a paused repository never runs autonomously,
+    regardless of these settings)."""
+    repo = await RepositoryService.get_repository_by_id(db, current_user.id, repository_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found.")
+    if payload.monitoring_schedule is not None:
+        if payload.monitoring_schedule not in ("manual", "daily", "weekly"):
+            raise HTTPException(status_code=400, detail="monitoring_schedule must be 'manual', 'daily', or 'weekly'.")
+        repo.monitoring_schedule = payload.monitoring_schedule
+    if payload.scan_on_relevant_push is not None:
+        repo.scan_on_relevant_push = payload.scan_on_relevant_push
+    await db.commit()
+    await db.refresh(repo)
+    return _to_repository_response(repo)
+
+
+@router.get("/{repository_id}/events", response_model=List[RepositoryEventResponse])
+async def list_repository_events(
+    repository_id: int,
+    limit: int = 30,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Phase 7 auditability (section 53): every webhook/scheduled trigger TALOS
+    has evaluated for this repository, processed or skipped, with why."""
+    repo = await RepositoryService.get_repository_by_id(db, current_user.id, repository_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found.")
+    stmt = select(RepositoryEvent).where(RepositoryEvent.repository_id == repository_id).order_by(desc(RepositoryEvent.received_at)).limit(limit)
+    res = await db.execute(stmt)
+    return res.scalars().all()
 
 
 # ==========================================

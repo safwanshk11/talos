@@ -14,6 +14,8 @@ class RepositoryScan(Base):
     ecosystem = Column(String, nullable=True)  # npm, pip, etc.
     total_dependencies = Column(Integer, default=0)
     issues_detected = Column(Integer, default=0)
+    # Phase 7: provenance — manual, scheduled_scan, github_push
+    trigger = Column(String, default="manual")
     
     started_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime(timezone=True), nullable=True)

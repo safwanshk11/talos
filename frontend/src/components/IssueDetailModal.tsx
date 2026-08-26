@@ -515,7 +515,7 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue: issue
               </div>
 
               {job && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 font-mono">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 font-mono">
                   <div className="p-3 rounded bg-slate-950/60 border border-subtle/70">
                     <span className="text-slate-500 block text-[11px] mb-1">RISK</span>
                     <span className="text-slate-200 font-bold text-sm uppercase">{job.risk_level || 'N/A'}</span>
@@ -523,6 +523,10 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({ issue: issue
                   <div className="p-3 rounded bg-slate-950/60 border border-subtle/70">
                     <span className="text-slate-500 block text-[11px] mb-1">STATUS</span>
                     <span className="text-slate-200 font-bold text-sm uppercase">{job.status}</span>
+                  </div>
+                  <div className="p-3 rounded bg-slate-950/60 border border-subtle/70">
+                    <span className="text-slate-500 block text-[11px] mb-1">TRIGGER</span>
+                    <span className="text-slate-200 font-bold text-xs uppercase">{(job.trigger || 'manual').replace('_', ' ')}</span>
                   </div>
                   <div className="p-3 rounded bg-slate-950/60 border border-subtle/70 col-span-2">
                     <span className="text-slate-500 block text-[11px] mb-1">CREATED AT</span>

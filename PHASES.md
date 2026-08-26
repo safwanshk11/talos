@@ -228,7 +228,45 @@ Standing rule for this project, in force from Phase 4 onward:
 - A live end-to-end `AUTO_EXECUTE`/`APPROVAL_REQUIRED` demo through a fresh real vulnerability wasn't captured in this pass, because the demo repository (`talos-demo-vulnerable-app`) is already fully patched from prior phase testing (0 open issues) — reintroducing a vulnerability would mean pushing a commit to that live GitHub repo, which wasn't done without being asked. The pre-flight `IGNORE` path was verified live instead (see above); the full post-plan decision path (protected paths, risk tiers, `AUTO_EXECUTE` chaining) is covered by the unit test suite but not yet re-confirmed against a live AI-generated plan in this session.
 - Collision handling is a repository-level lock, not file-level — intentional per the phase's own MVP guidance ("prefer reliability over concurrency").
 
-## Phase 7 — Production Hardening + Hackathon Polish 🔜 Planned
+## Phase 7 — Continuous Autonomous Monitoring & Event-Driven Maintenance ✅ Complete
+
+**Goal:** Remove the requirement that a developer must keep the TALOS UI open and click buttons for anything to happen. TALOS should watch continuously and act selectively — without ever bypassing Phase 6.5's governance or inventing a second autonomous pipeline.
+
+**Delivered:**
+- **`MonitoringOrchestrator`** (`backend/app/services/monitoring_service.py`) — the only new orchestration logic in this phase. It decides *whether and when* to invoke the existing, unmodified pipeline (`ScannerService.run_repository_scan()` → `PatchService.prepare_fix()`, both of which already do full Decision-Engine-gated AUTO_EXECUTE/APPROVAL_REQUIRED/ESCALATE handling from Phase 6.5) — it never reimplements any of it.
+- **GitHub webhook intake** (`POST /api/v1/webhooks/github`): `X-Hub-Signature-256` verified via HMAC-SHA256 against a configured secret before any processing — no secret configured means every request is refused (503), never silently accepted unverified. Handles `push` (relevance-filtered scan trigger) and `pull_request` (close/merge syncs `PullRequest.github_status` back from real GitHub state).
+- **Relevance filtering**: a push only triggers a scan if it touches a maintenance-sensitive file (`package.json`, lockfiles, `requirements.txt`, etc.) on the repository's default branch — a docs-only push costs nothing.
+- **Scheduled monitoring**: an `asyncio` background task inside the existing FastAPI process (no Celery/Redis/cron daemon — matches this codebase's established "simplest reliable mechanism" precedent from Phase 6's polling) — ticks periodically and scans any repository whose `monitoring_schedule` (manual/daily/weekly, opt-in per repository) is due.
+- **Event idempotency**: `RepositoryEvent.delivery_id` (GitHub's `X-GitHub-Delivery`) checked before any processing — a retried webhook delivery is acknowledged and ignored, never turned into a second scan.
+- **Issue identity — reused, not rebuilt**: Phase 2's fingerprint-based dedup already did exactly what this phase needed (the same vulnerability across five scans stays one issue, auto-resolves when it disappears).
+- **TALOS self-trigger loop prevention**: pushes to `talos/fix-*` branches (TALOS's own patch branches) are recognized and skipped before any processing — confirmed live, not just unit-tested.
+- **Concurrency preserved**: `MonitoringOrchestrator` reuses Phase 6.5's one-mutating-workflow-per-repository philosophy (`has_active_scan()`/`has_active_job()`) rather than building new locking.
+- **Provenance everywhere**: `MaintenanceJob.trigger` / `RepositoryScan.trigger` (`manual`/`scheduled_scan`/`github_push`), visible in the Job Detail Overview tab and the real Action Ledger (e.g. *"Autonomous cycle started (trigger=github_push)."*) — never a fabricated narrative.
+- **UI**: Command Center gained a "System Status" line (repositories monitored/paused, next scheduled check) computed entirely from data already fetched — no new rollup endpoint. Repository Detail gained a compact **Monitoring** section (schedule, relevant-push toggle, last automatic scan, last trigger), respecting the existing pause/resume switch as the authoritative on/off control everywhere.
+
+**Key files:** `backend/app/models/monitoring.py` (new `RepositoryEvent`), `backend/app/services/monitoring_service.py` (new — `EventService`, `MonitoringOrchestrator`, `SchedulerService`), `backend/app/api/v1/webhooks.py` (new), `backend/app/schemas/monitoring.py` (new), `backend/app/models/repository.py` (`monitoring_schedule`/`scan_on_relevant_push`/`last_automatic_scan_at`/`last_trigger`), `backend/app/services/scanner_service.py` + `patch_service.py` (added `trigger` parameter only — pipelines themselves untouched), `backend/app/main.py` (scheduler task lifecycle, startup reconciliation), `frontend/src/pages/{CommandCenterPage,RepositoryDetailPage}.tsx`.
+
+**Bugs found and fixed while building this phase:**
+- **Orphaned "running" scans blocking all future autonomous work**: two scans from early in this project's development had been left in `status="running"` forever by an earlier container restart (the existing scanner's exception handler can't run if the process itself is killed mid-scan — a latent gap since Phase 2). This was invisible before Phase 7 because nothing previously queried for "is a scan active" — the new `has_active_scan()` concurrency lock (built for exactly this phase's collision-safety requirement) surfaced it immediately by treating that repository as permanently busy. Fixed with a startup reconciliation pass: any scan/job left mid-flight by a previous process life is marked `failed` and diagnosable, never silently stuck.
+
+**Verified live against the running stack** (webhook calls with real, correctly-computed HMAC signatures against the actual deployed backend — not mocked):
+- **Relevant push**: a signed push touching `package.json`/`package-lock.json` → real clone, real OSV scan (`triggered_scan_id` recorded), honestly found 0 open issues (the demo repo's actual current state) — `Repository.last_trigger` correctly updated to `github_push`.
+- **Irrelevant push**: a signed push touching only `README.md` → `skipped: no_relevant_file_changes`, no scan spent.
+- **Loop prevention**: a signed push to `talos/fix-3-axios` → `skipped: talos_generated_branch`.
+- **Idempotency**: the same delivery ID posted twice → second call returns `duplicate_ignored`.
+- **Signature enforcement**: an invalid signature → `401`; no secret configured → `503`, in both cases before any payload processing.
+
+**Tests:** `backend/tests/test_monitoring.py` — 18 new tests (signature verification, TALOS-branch/relevance pure functions, scheduler due-check logic across manual/daily/weekly, and 6 real webhook-endpoint tests via `TestClient` against a live DB). 35/35 backend tests pass together.
+
+**Known limitations:**
+- No live scheduled-scan demo captured (would require a 24h wait or direct DB timestamp manipulation) — the due-check logic itself is unit-tested instead of observed firing in real time.
+- **Deliberately defaulted `monitoring_schedule` to `manual`, not the spec's suggested `daily`** — this connects to real, already-live GitHub repositories (including this project's own repository), and a newly-shipped background scheduler should not start autonomously scanning/patching them the moment it ships without the owner opting in per repository.
+- Real GitHub webhook delivery end-to-end (GitHub itself calling TALOS) is untestable from this local Docker Compose environment without a public URL (e.g. ngrok) — verified instead via correctly-signed simulated payloads against the live backend, which exercises the identical code path a real delivery would.
+- The `AUTO_EXECUTE` continuation (patch → verify → deliver) triggered by an autonomous cycle wasn't re-demonstrated fresh in this phase's live testing, because the demo repository currently has 0 open issues; it's unmodified from Phase 6.5, where it was already verified.
+
+---
+
+## Phase 8 — Production Hardening + Hackathon Polish 🔜 Planned
 
 Real multi-tenant auth, encrypted secret storage (GitHub PAT is currently plaintext — see Phase 1), formal DB migrations (currently ad-hoc `ALTER TABLE` statements — see Phase 1/2), broader ecosystem support, general robustness pass.
 
