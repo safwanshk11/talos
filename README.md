@@ -1,6 +1,6 @@
 # TALOS — Autonomous Repository Maintenance System
 
-[![Phase 5 Complete](https://img.shields.io/badge/Phase%205-GitHub%20Delivery-blue.svg)](#)
+[![Phase 6 Complete](https://img.shields.io/badge/Phase%206-Autonomous%20Operations%20Dashboard-blue.svg)](#)
 [![Stack](https://img.shields.io/badge/Tech%20Stack-FastAPI%20%7C%20React%20%7C%20PostgreSQL%20%7C%20Docker-brightgreen.svg)](#)
 
 TALOS is an autonomous repository maintenance system. It continuously monitors software repositories, detects routine maintenance problems, understands what needs to change, creates isolated fixes, verifies those fixes through real engineering checks, and delivers review-ready pull requests.
@@ -20,27 +20,29 @@ WATCH  ──►  DETECT  ──►  UNDERSTAND  ──►  PLAN  ──►  PAT
 
 ---
 
-## Current Status: Phase 5 Complete
+## Current Status: Phase 6 Complete
 
-Phase 5 closes the loop: **the exact patch that passed Phase 4 verification is delivered as a real, review-ready GitHub pull request — never regenerated, never auto-merged.**
+Phase 6 turns TALOS into a coherent **autonomous operations control center**: a real visual identity (near-black design system, landing/login pages, animated app shell) plus a cross-repository dashboard built entirely from data the backend already produces — no fabricated metrics, no fake progress.
 
-1. **Hard Delivery Gate, Enforced Server-Side**: a maintenance job must be genuinely `VERIFIED` — a real ready `PatchAttempt` plus a `VerificationRun` with `status="verified"` — checked inside `DeliveryService` itself, not just hidden behind a UI button. Calling the deliver endpoint directly against a `PATCH_READY` or `VERIFICATION_FAILED` job is rejected with `400 DELIVERY BLOCKED` every time.
-2. **The Exact Verified Artifact, Never a New One**: no AI call anywhere in delivery. TALOS pushes the *same* local commit Phase 3 created and Phase 4 verified — never re-committed — and recomputes a SHA-256 of the live workspace diff immediately before push, comparing it against a hash of the diff Phase 4 actually verified. Any mismatch blocks delivery outright.
-3. **Real Push, Real Pull Request**: pushes the TALOS branch (credentials passed only as a one-off `git push` argument, never written to disk) and opens an actual GitHub PR — `head` is the TALOS branch, `base` is the repository's default branch. TALOS never merges anything.
-4. **Evidence-Based PR Descriptions**: the PR body is built entirely from stored data — the real `MaintenanceIssue`, the real `MaintenancePlan`, and a verification table sourced directly from `VerificationCheck` rows (`PASSED`/`FAILED`/`SKIPPED` with real reasons) — the same evidence-integrity rule Phase 4 established, never fabricated precision.
-5. **Idempotent & Resumable**: one `PullRequest` row per job — a duplicate delivery request returns the existing PR instead of opening a second one, and a delivery that fails partway (e.g. push succeeds, PR creation fails) resumes on retry rather than restarting from scratch.
+1. **Command Center**: STATUS / ATTENTION / **Active Operations** / Recent Outcomes / **Repository Health**, aggregated client-side across existing per-repo endpoints — no new backend rollup endpoints.
+2. **Live Job-State Updates**: polling (`usePolling`, 8s, only while something is active) — the honest choice given no SSE/WebSocket infra exists. No simulated progress bars.
+3. **Job Detail, Tabbed**: Overview / Analysis / Patch / Verification / Delivery / Activity — a tab appears only once its backing data actually exists, all sourced from real stored evidence (the same [Verification Evidence Integrity Rule](PHASES.md#verification-evidence-integrity-rule) from Phase 4).
+4. **Maintenance Bay & Review Queue**: Maintenance Bay is the working-issues surface with real filters; Review Queue is the human PR handoff surface — real `PullRequest` rows, on-demand GitHub status sync, never auto-merged.
+5. **Activity Log**: real cross-repository `ActionLog` records (replacing previously hardcoded placeholder entries), with filters and search.
+6. **New Visual System**: near-black theme, a real marketing landing page, a login page built on TALOS's existing GitHub OAuth/PAT flow (no fake auth), an animated app shell with sidebar navigation, and a shared Framer Motion animation system (route transitions, scroll reveals, sliding active-tab indicators).
 
-Earlier phases remain fully active and are what Phase 5 builds on — see **[PHASES.md](PHASES.md)** for the complete build history, architecture notes, and known limitations of every phase:
+Earlier phases remain fully active and are what Phase 6 builds on — see **[PHASES.md](PHASES.md)** for the complete build history, architecture notes, and known limitations of every phase:
 - **Phase 1** — GitHub integration, repository connection & dashboard
 - **Phase 2** — repository scanning, OSV vulnerability detection, automation readiness
 - **Phase 3** — AI-driven planning & patch generation (Ollama / Gemini), isolated branches, real diffs
 - **Phase 4** — sandboxed verification engine, original-vulnerability re-scan, evidence-over-confidence reporting
+- **Phase 5** — real GitHub pushes & pull requests, hard server-side delivery gate, never auto-merged
 
 ---
 
 ## Tech Stack
 
-* **Frontend**: React 18, TypeScript, Vite, Lucide Icons, Custom Developer Dark Theme
+* **Frontend**: React 18, TypeScript, Vite, React Router v6, Framer Motion, Lucide Icons, near-black custom Tailwind design system
 * **Backend**: FastAPI, Python 3.11, Async SQLAlchemy 2.0, Pydantic v2, HTTPX
 * **AI Providers**: Ollama (local dev) or Gemini (deployment) behind a pluggable `AIProvider` interface
 * **Database**: PostgreSQL 16
@@ -54,15 +56,22 @@ Earlier phases remain fully active and are what Phase 5 builds on — see **[PHA
 
 ```text
 talos/
-├── frontend/             # Vite + React + TypeScript Dashboard
+├── frontend/             # Vite + React + TypeScript Operations Dashboard
 │   ├── src/
 │   │   ├── components/   # Sidebar, Header, MetricsOverview, RepositoryCard, ConnectGithubModal,
-│   │   │                 # IssueDetailModal (fix pipeline), DiffViewer, VerificationReport,
+│   │   │                 # IssueDetailModal (tabbed fix pipeline), DiffViewer, VerificationReport,
 │   │   │                 # RemoveRepositoryModal, PullRequestCard
-│   │   ├── pages/        # DashboardPage, RepositoryDetailPage, ActivityPage, SettingsPage
+│   │   │   └── ui/       # PageHeader, SectionCard, StatusBadge, EmptyState, Modal, Tabs,
+│   │   │                 # PageTransition, AnimatedNumber, Reveal — shared design-system primitives
+│   │   ├── layouts/      # AppShell (sidebar nav + route outlet, useAppShell() context)
+│   │   ├── pages/        # LandingPage, LoginPage, CommandCenterPage, RepositoryRegistryPage,
+│   │   │                 # RepositoryDetailPage, MaintenanceBayPage, ReviewQueuePage,
+│   │   │                 # ActivityPage, SettingsPage
+│   │   ├── hooks/        # useCrossRepoData, useDashboardStats, usePolling
+│   │   ├── lib/          # statusGroups (active/attention/closed status classification)
 │   │   ├── services/     # Typed API Client
 │   │   ├── types/        # TypeScript Interfaces
-│   │   └── index.css     # Developer Infrastructure Theme
+│   │   └── index.css     # Near-black design tokens
 │   └── Dockerfile
 ├── backend/              # FastAPI Python Service
 │   ├── app/

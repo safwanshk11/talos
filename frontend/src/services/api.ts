@@ -11,6 +11,7 @@ import {
   MaintenanceJob,
   VerificationRun,
   PullRequest,
+  HealthStatus,
 } from '../types';
 
 const API_BASE = '/api/v1';
@@ -48,6 +49,8 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  getHealth: () => request<HealthStatus>('/health'),
+
   // Auth & GitHub Status
   getMe: () => request<User>('/auth/me'),
   getGitHubStatus: () => request<GitHubConnectionStatus>('/auth/github/status'),

@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Repository } from '../types';
 import { AlertTriangle, Loader2, X } from 'lucide-react';
+import { Modal } from './ui/Modal';
 
 interface RemoveRepositoryModalProps {
   repo: Repository | null;
@@ -17,11 +18,18 @@ export const RemoveRepositoryModal: React.FC<RemoveRepositoryModalProps> = ({
   onCancel,
   onConfirm,
 }) => {
-  if (!repo) return null;
+  // Keep the last known repo around through the exit animation — `repo` goes
+  // null the instant the caller closes this, before Modal finishes fading out.
+  const [lastRepo, setLastRepo] = useState<Repository | null>(repo);
+  useEffect(() => {
+    if (repo) setLastRepo(repo);
+  }, [repo]);
+
+  const displayRepo = repo ?? lastRepo;
+  if (!displayRepo) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 select-none">
-      <div className="bg-card border border-subtle w-full max-w-md rounded-xl shadow-2xl overflow-hidden flex flex-col">
+    <Modal isOpen={!!repo} onClose={removing ? undefined : onCancel} maxWidth="max-w-md">
         {/* Header */}
         <div className="p-5 border-b border-subtle flex items-center justify-between bg-slate-900/50">
           <div className="flex items-center gap-3">
@@ -43,7 +51,7 @@ export const RemoveRepositoryModal: React.FC<RemoveRepositoryModalProps> = ({
         <div className="p-6 space-y-4 text-sm">
           <p className="text-slate-300">TALOS will stop monitoring:</p>
           <div className="p-3 rounded-lg bg-slate-950/60 border border-subtle font-mono text-slate-100 text-sm">
-            {repo.full_name}
+            {displayRepo.full_name}
           </div>
           <p className="text-xs text-slate-400">
             Existing GitHub code will not be modified or deleted. Scan history, detected issues,
@@ -72,7 +80,6 @@ export const RemoveRepositoryModal: React.FC<RemoveRepositoryModalProps> = ({
             <span>{removing ? 'Removing...' : 'Remove Repository'}</span>
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };

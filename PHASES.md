@@ -165,9 +165,42 @@ Standing rule for this project, in force from Phase 4 onward:
 
 ---
 
-## Phase 6 — Autonomous Operations Dashboard 🔜 Planned
+## Phase 6 — UI/UX Overhaul + Autonomous Operations Dashboard ✅ Complete
 
-Cross-repository view of everything TALOS is doing/has done: active jobs, verification history, escalations awaiting human review.
+**Goal:** Turn TALOS from a set of working pages into a coherent autonomous-operations control center — a genuine visual identity, plus a real cross-repository view of everything TALOS is doing or has done, built entirely from data the backend already produces.
+
+**Delivered — Visual system rewrite:**
+- Full near-black design-token rewrite (`tailwind.config.js`, `index.css`) replacing the old blue-tinted dark theme.
+- A real marketing landing page (`LandingPage.tsx`) and a login page (`LoginPage.tsx`) built on TALOS's existing GitHub OAuth/PAT flow — no fake auth introduced.
+- Authenticated app shell (`layouts/AppShell.tsx`) with sidebar navigation, replacing the single flat dashboard route.
+- A small shared UI kit (`components/ui/`: `PageHeader`, `SectionCard`, `StatusBadge`, `EmptyState`, `Modal`, `Tabs`, `PageTransition`, `AnimatedNumber`, `Reveal`) so every page shares one visual language instead of ad hoc markup.
+- Framer Motion throughout: route transitions, scroll reveals, a sliding shared-element active-tab/active-nav indicator, and modal exit animations (mirrored local state so content survives the close transition) — gated behind `useReducedMotion`.
+
+**Delivered — Autonomous Operations Dashboard:**
+- **Command Center** (`CommandCenterPage.tsx`) rebuilt around STATUS / ATTENTION / **Active Operations** / Recent Outcomes / **Repository Health**, aggregated client-side via `Promise.all` across existing per-repo endpoints — no new backend endpoints for read-only rollups.
+- **Live job-state updates via polling** (`hooks/usePolling.ts`, 8s interval, only while something is actually active) — the honest choice given no SSE/WebSocket infrastructure exists; no fabricated progress bars.
+- **Job Detail restructured into tabs** (Overview / Analysis / Patch / Verification / Delivery / Activity, via `components/ui/Tabs.tsx`) inside `IssueDetailModal.tsx` — a tab only appears once its backing data actually exists. Surfaced `analysis.root_cause` and AI provider/model, both previously fetched but never shown.
+- **Maintenance Bay** (`MaintenanceBayPage.tsx`) — the 8-state filter set from the spec, plus live search.
+- **Review Queue** (`ReviewQueuePage.tsx`) — the human PR handoff surface: real `PullRequest` rows with live GitHub OPEN/MERGED/CLOSED status, on-demand "Sync Status" wired to the existing Phase 5 refresh endpoint, plus search.
+- **Activity Log** (`ActivityPage.tsx`) rebuilt on real cross-repository `ActionLog` records (replacing previously hardcoded fake entries) with step/failure filter chips and search.
+- **Sidebar badges** (`Sidebar.tsx`) show real Maintenance Bay / Review Queue counts from the existing stats endpoint — never invented numbers.
+- **Settings** (`SettingsPage.tsx`) gained an AI Provider section sourced from a small, secret-free addition to `/health` (`ai_provider`, `ai_model`).
+- Lightweight client-side search added across all list pages (Repository Registry, Maintenance Bay, Review Queue, Activity Log).
+
+**Key files:** `frontend/src/layouts/AppShell.tsx`, `frontend/src/pages/{LandingPage,LoginPage,CommandCenterPage,RepositoryRegistryPage,MaintenanceBayPage,ReviewQueuePage,ActivityPage,SettingsPage,RepositoryDetailPage}.tsx`, `frontend/src/components/ui/*`, `frontend/src/components/IssueDetailModal.tsx`, `frontend/src/hooks/{useCrossRepoData,useDashboardStats,usePolling}.ts`, `frontend/src/lib/statusGroups.ts`, `frontend/tailwind.config.js`, `frontend/src/index.css`, `backend/app/api/v1/health.py` (AI provider fields), `backend/app/schemas/repository.py` + `backend/app/api/v1/repositories.py` (`last_scanned_at` fix, below).
+
+**Bugs found and fixed while building this phase:**
+- `patch_service.py` threw an unhandled 500 when "Prepare Fix" was run against an issue whose target package had already been fixed upstream (no file changes to diff). Fixed by re-querying OSV for the real installed version before failing (`_is_still_vulnerable`/`_resolve_installed_version`); a genuinely-already-fixed issue now resolves cleanly (`job.status="resolved"`, `issue.status="RESOLVED"`) instead of crashing.
+- `RepositoryDetailPage.tsx` never filtered `RESOLVED`/`DELIVERED` issues out of its active-issues list — old, already-handled issues kept showing as if still open. Fixed with an explicit `activeIssues` filter.
+- `StatusBadge`'s tone mapping put bare `'OPEN'` in the success/green group, which visually implied a still-open HIGH-severity issue was resolved. Moved to the warning group. Caught during this phase's own visual QA, not user-reported.
+- `Repository.last_scanned_at` was correctly written to the DB by `scanner_service.py` since Phase 2 but was never included in `RepositoryResponse` or `_to_repository_response()` — the UI had shown "Never" regardless of real scan history since Phase 1. Fixed by wiring the field through the schema and response mapper; confirmed via API and a rebuilt screenshot showing a real relative timestamp.
+
+**Verified:** `tsc`/`vite build` clean; Playwright pass across every page and the tabbed job-detail modal with zero console errors. Confirmed the demo repository's dependencies are now genuinely at 0 vulnerabilities (cumulative effect of the real PRs delivered in Phase 5 testing) — Maintenance Bay correctly renders its real empty state rather than stale cards, and the scanner's dedup logic was confirmed not to clobber an already-`DELIVERED` issue back to `RESOLVED`. Job Detail tabs verified against a real `DELIVERED` issue (express, job with a full patch/verification/PR trail): Overview showed real metadata plus risk/status/created-at; Verification tab rendered the actual `VerificationReport` — sandbox ID, per-check PASS/SKIPPED with real durations, `Original Vulnerability: PASS — express 4.17.1 → 5.2.1: advisory GHSA-qw6h-vgh9-j6wx removed`.
+
+**Known limitations:**
+- Live updates are polling, not push (see [Cross-Phase Technical Debt](#cross-phase-technical-debt-tracked-not-yet-addressed) — no SSE/WebSocket infra exists; introducing it wasn't justified for this phase alone).
+- "Active Operations" descriptions reflect only real, already-fetched job state (e.g. `VERIFYING`) — no fabricated blow-by-blow narrative ("Running security audit...") since that granularity isn't available without expensive extra fetches.
+- PR status sync in Review Queue is manual (button), not automatic on load — consistent with Phase 5's own "don't delay core delivery for this" precedent.
 
 ## Phase 7 — Production Hardening + Hackathon Polish 🔜 Planned
 

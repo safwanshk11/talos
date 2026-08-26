@@ -1,6 +1,7 @@
 import React from 'react';
 import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { ActionLog } from '../types';
+import { Modal } from './ui/Modal';
 
 interface ScanProgressModalProps {
   isOpen: boolean;
@@ -17,11 +18,8 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
   logs,
   error,
 }) => {
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 select-none">
-      <div className="bg-card border border-subtle w-full max-w-xl rounded-xl shadow-2xl overflow-hidden flex flex-col">
+    <Modal isOpen={isOpen} onClose={scanning ? undefined : onClose} maxWidth="max-w-xl">
         {/* Header */}
         <div className="p-5 border-b border-subtle flex items-center justify-between bg-slate-900/50">
           <div className="flex items-center gap-3">
@@ -86,7 +84,6 @@ export const ScanProgressModal: React.FC<ScanProgressModalProps> = ({
             {scanning ? 'Scanning...' : 'Close Window'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };

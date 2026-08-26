@@ -270,6 +270,15 @@ export interface RepositoryReadiness {
   updated_at: string;
 }
 
+export interface HealthStatus {
+  status: string;
+  service: string;
+  database: string;
+  version: string;
+  ai_provider: string;
+  ai_model: string;
+}
+
 export interface ActionLog {
   id: number;
   repository_id?: number;

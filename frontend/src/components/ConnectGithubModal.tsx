@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { Modal } from './ui/Modal';
 import { GitHubRepoImportItem, GitHubConnectionStatus } from '../types';
 import {
   X,
@@ -102,11 +103,8 @@ export const ConnectGithubModal: React.FC<ConnectGithubModalProps> = ({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-card border border-subtle w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+    <Modal isOpen={isOpen} onClose={onClose} maxWidth="max-w-2xl">
         {/* Header */}
         <div className="p-5 border-b border-subtle flex items-center justify-between bg-slate-900/50">
           <div className="flex items-center gap-3">
@@ -301,7 +299,6 @@ export const ConnectGithubModal: React.FC<ConnectGithubModalProps> = ({
             Done
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };

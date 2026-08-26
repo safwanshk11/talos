@@ -60,6 +60,7 @@ def _to_repository_response(repo) -> RepositoryResponse:
         monitoring_status=repo.monitoring_status,
         connection_status=repo.connection_status,
         last_checked_at=repo.last_checked_at,
+        last_scanned_at=repo.last_scanned_at,
         created_at=repo.created_at,
         updated_at=repo.updated_at
     )

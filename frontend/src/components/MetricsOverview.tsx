@@ -1,6 +1,7 @@
 import React from 'react';
 import { DashboardStats } from '../types';
 import { GitFork, AlertTriangle, CheckCircle2, GitPullRequest } from 'lucide-react';
+import { AnimatedNumber } from './ui/AnimatedNumber';
 
 interface MetricsOverviewProps {
   stats: DashboardStats | null;
@@ -48,16 +49,16 @@ export const MetricsOverview: React.FC<MetricsOverviewProps> = ({ stats, loading
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       {cards.map((card, idx) => {
         const Icon = card.icon;
         return (
           <div
             key={idx}
-            className={`p-5 rounded-lg bg-card border ${card.borderColor} flex flex-col justify-between`}
+            className={`p-5 rounded-xl bg-card border ${card.borderColor} flex flex-col justify-between card-interactive`}
           >
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">
                 {card.title}
               </span>
               <div className={`p-2 rounded-md ${card.bgColor} ${card.color}`}>
@@ -72,10 +73,10 @@ export const MetricsOverview: React.FC<MetricsOverviewProps> = ({ stats, loading
               </div>
             ) : (
               <div>
-                <div className="text-2xl font-bold text-slate-100 font-mono">
-                  {card.value}
+                <div className="text-2xl font-bold text-text-primary font-mono">
+                  <AnimatedNumber value={card.value} />
                 </div>
-                <div className="text-xs text-slate-400 mt-1 font-mono">{card.sub}</div>
+                <div className="text-xs text-text-muted mt-1 font-mono">{card.sub}</div>
               </div>
             )}
           </div>

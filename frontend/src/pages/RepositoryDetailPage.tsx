@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import {
   Repository,
@@ -34,15 +35,13 @@ import {
   GitPullRequest,
 } from 'lucide-react';
 
-interface RepositoryDetailPageProps {
-  repoId: number;
-  onBack: () => void;
-}
+export const RepositoryDetailPage: React.FC = () => {
+  const params = useParams<{ id: string }>();
+  const repoId = Number(params.id);
+  const navigate = useNavigate();
+  const onBack = () => navigate('/app/repositories');
+  const [searchParams, setSearchParams] = useSearchParams();
 
-export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
-  repoId,
-  onBack,
-}) => {
   const [repo, setRepo] = useState<Repository | null>(null);
   const [readiness, setReadiness] = useState<RepositoryReadiness | null>(null);
   const [issues, setIssues] = useState<MaintenanceIssue[]>([]);
@@ -82,6 +81,14 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
       setIssues(issuesData);
       setLogs(logsData);
       setPullRequests(pullRequestsData);
+
+      // Deep-link support: Command Center / Maintenance Bay link here with
+      // ?issue=<id> to jump straight to a specific finding.
+      const deepLinkIssueId = searchParams.get('issue');
+      if (deepLinkIssueId) {
+        const match = issuesData.find((i) => i.id === Number(deepLinkIssueId));
+        if (match) setSelectedIssue(match);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load repository detail.');
     } finally {
@@ -91,6 +98,7 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
 
   useEffect(() => {
     fetchRepoData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoId]);
 
   const handleSync = async () => {
@@ -468,6 +476,29 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
         </div>
       )}
 
+      {/* Activity — real Action Ledger entries for this repository */}
+      {logs.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 border-b border-subtle pb-3">
+            <Clock className="w-4 h-4 text-blue-400" />
+            <h2 className="text-base font-semibold text-slate-200 font-mono">
+              ACTIVITY ({logs.length})
+            </h2>
+          </div>
+          <div className="rounded-xl border border-subtle bg-card divide-y divide-white/[0.06] max-h-80 overflow-y-auto">
+            {logs.slice(0, 30).map((log) => (
+              <div key={log.id} className="px-4 py-2.5 text-xs flex items-start gap-3">
+                <span className="text-slate-500 font-mono shrink-0 pt-0.5">
+                  {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-blue-400 font-mono font-semibold shrink-0">{log.step}</span>
+                <span className="text-slate-300">{log.message}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Repository Settings / Danger Zone */}
       <div className="rounded-xl border border-red-500/20 bg-red-500/[0.03] overflow-hidden">
         <div className="px-5 py-3 border-b border-red-500/20">
@@ -524,7 +555,13 @@ export const RepositoryDetailPage: React.FC<RepositoryDetailPageProps> = ({
       <IssueDetailModal
         issue={selectedIssue}
         repoId={repoId}
-        onClose={() => setSelectedIssue(null)}
+        onClose={() => {
+          setSelectedIssue(null);
+          if (searchParams.has('issue')) {
+            searchParams.delete('issue');
+            setSearchParams(searchParams, { replace: true });
+          }
+        }}
         onJobUpdated={fetchRepoData}
       />
 

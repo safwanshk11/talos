@@ -49,6 +49,7 @@ class RepositoryResponse(BaseModel):
     monitoring_status: str
     connection_status: str
     last_checked_at: datetime
+    last_scanned_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

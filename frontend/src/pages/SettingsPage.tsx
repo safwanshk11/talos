@@ -1,20 +1,19 @@
-import React, { useState } from 'react';
-import { GitHubConnectionStatus } from '../types';
+import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { Shield, Github, Trash2, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { useAppShell } from '../layouts/AppShell';
+import { PageHeader } from '../components/ui/PageHeader';
+import { SectionCard } from '../components/ui/SectionCard';
+import { HealthStatus } from '../types';
+import { Shield, Github, Trash2, CheckCircle2, AlertCircle, Loader2, Brain } from 'lucide-react';
 
-interface SettingsPageProps {
-  ghStatus: GitHubConnectionStatus | null;
-  onRefreshStatus: () => void;
-  onOpenConnectModal: () => void;
-}
-
-export const SettingsPage: React.FC<SettingsPageProps> = ({
-  ghStatus,
-  onRefreshStatus,
-  onOpenConnectModal,
-}) => {
+export const SettingsPage: React.FC = () => {
+  const { ghStatus, refreshStatus, openConnectModal } = useAppShell();
   const [disconnecting, setDisconnecting] = useState(false);
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+
+  useEffect(() => {
+    api.getHealth().then(setHealth).catch(() => {});
+  }, []);
 
   const handleDisconnect = async () => {
     if (!confirm('Are you sure you want to disconnect your GitHub account from TALOS?')) return;
@@ -22,7 +21,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     try {
       await api.disconnectGitHub();
       localStorage.removeItem('talos_token');
-      onRefreshStatus();
+      refreshStatus();
     } catch (err: any) {
       alert(`Disconnect failed: ${err.message}`);
     } finally {
@@ -31,61 +30,28 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-100 font-mono tracking-tight">
-          PLATFORM SETTINGS
-        </h1>
-        <p className="text-sm text-slate-400 mt-1">
-          Manage GitHub credentials, security tokens, and platform integrations.
-        </p>
-      </div>
+    <div className="p-8 max-w-4xl mx-auto space-y-8">
+      <PageHeader eyebrow="Settings" title="Settings" subtitle="Manage GitHub credentials, security tokens, and platform integrations." />
 
-      <div className="p-6 rounded-xl bg-card border border-subtle space-y-6">
-        <div className="flex items-center gap-3 border-b border-subtle pb-4">
-          <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
-            <Github className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-base font-semibold text-slate-200">GitHub Connection</h2>
-            <p className="text-xs text-slate-400">
-              TALOS connects securely to GitHub to read repository metadata and track commits.
-            </p>
-          </div>
-        </div>
-
+      <SectionCard icon={<Github className="w-5 h-5" />} title="GitHub Connection" subtitle="TALOS connects securely to GitHub to read repository metadata and track commits.">
         {ghStatus?.connected ? (
           <div className="space-y-4">
-            <div className="p-4 rounded-lg bg-slate-950/60 border border-emerald-500/30 flex items-center justify-between text-xs">
+            <div className="p-4 rounded-lg bg-white/[0.02] border border-emerald-500/25 flex items-center justify-between text-xs">
               <div className="flex items-center gap-3">
                 <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
                 <div>
-                  <div className="font-semibold text-slate-200">
-                    Connected as @{ghStatus.github_username}
-                  </div>
-                  <div className="text-slate-400 mt-0.5 font-mono">
+                  <div className="font-semibold text-text-primary">Connected as @{ghStatus.github_username}</div>
+                  <div className="text-text-muted mt-0.5 font-mono">
                     Scopes: {ghStatus.scopes || 'repo, user'} • Connected: {ghStatus.connected_at ? new Date(ghStatus.connected_at).toLocaleDateString() : 'Active'}
                   </div>
                 </div>
               </div>
-
-              <button
-                onClick={handleDisconnect}
-                disabled={disconnecting}
-                className="btn btn-danger text-xs flex items-center gap-1.5"
-              >
-                {disconnecting ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Trash2 className="w-3.5 h-3.5" />
-                )}
+              <button onClick={handleDisconnect} disabled={disconnecting} className="btn btn-danger text-xs flex items-center gap-1.5">
+                {disconnecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                 <span>Disconnect</span>
               </button>
             </div>
-
-            <button onClick={onOpenConnectModal} className="btn btn-secondary text-xs">
-              Change Token / Connect Repositories
-            </button>
+            <button onClick={openConnectModal} className="btn btn-secondary text-xs">Change Token / Connect Repositories</button>
           </div>
         ) : (
           <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-between text-xs">
@@ -93,33 +59,35 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <AlertCircle className="w-5 h-5 shrink-0" />
               <span>No GitHub connection active. Connect a PAT or OAuth app to import repositories.</span>
             </div>
-            <button onClick={onOpenConnectModal} className="btn btn-primary text-xs shrink-0">
-              Connect GitHub
-            </button>
+            <button onClick={openConnectModal} className="btn btn-primary text-xs shrink-0">Connect GitHub</button>
           </div>
         )}
-      </div>
+      </SectionCard>
 
-      <div className="p-6 rounded-xl bg-card border border-subtle space-y-4">
-        <div className="flex items-center gap-3 border-b border-subtle pb-4">
-          <div className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300">
-            <Shield className="w-5 h-5" />
+      {health && (
+        <SectionCard icon={<Brain className="w-5 h-5" />} title="AI Provider" subtitle="Used for problem analysis and patch planning — deterministic package-manager commands still make the actual change.">
+          <div className="p-4 rounded-lg bg-white/[0.02] border border-subtle flex items-center justify-between text-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-blue-400" />
+              <div>
+                <div className="font-semibold text-text-primary capitalize">{health.ai_provider}</div>
+                <div className="text-text-muted mt-0.5 font-mono">{health.ai_model}</div>
+              </div>
+            </div>
+            <span className="badge badge-blue uppercase">Active</span>
           </div>
-          <div>
-            <h2 className="text-base font-semibold text-slate-200">Security Principles & Governance</h2>
-            <p className="text-xs text-slate-400">
-              TALOS operates under strict least-privilege security and isolated branch rules.
-            </p>
-          </div>
-        </div>
+        </SectionCard>
+      )}
 
-        <ul className="text-xs text-slate-400 space-y-2 list-disc list-inside font-mono">
+      <SectionCard icon={<Shield className="w-5 h-5" />} title="Security Principles & Governance" subtitle="TALOS operates under strict least-privilege security and isolated branch rules.">
+        <ul className="text-xs text-text-secondary space-y-2.5 list-disc list-inside font-mono">
           <li>GitHub credentials are encrypted and strictly managed by the backend.</li>
           <li>Frontend never receives or stores raw access tokens or OAuth secrets.</li>
           <li>Primary branches are protected — TALOS never directly commits to main.</li>
+          <li>Verification sandboxes never receive TALOS's credentials.</li>
           <li>Untrusted repository files are treated as data, preventing prompt injection attacks.</li>
         </ul>
-      </div>
+      </SectionCard>
     </div>
   );
 };
