@@ -4,6 +4,7 @@ import { AppShell } from './layouts/AppShell';
 import { LandingPage } from './pages/LandingPage';
 import { FirstBootExperience } from './components/FirstBootExperience';
 import { LoginPage } from './pages/LoginPage';
+import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { CommandCenterPage } from './pages/CommandCenterPage';
 import { RepositoryRegistryPage } from './pages/RepositoryRegistryPage';
 import { RepositoryDetailPage } from './pages/RepositoryDetailPage';
@@ -25,6 +26,7 @@ export const App: React.FC = () => {
           }
         />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/auth/github/callback" element={<AuthCallbackPage />} />
 
         <Route path="/app" element={<AppShell />}>
           <Route index element={<CommandCenterPage />} />
