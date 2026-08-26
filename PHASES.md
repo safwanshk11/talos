@@ -344,6 +344,33 @@ Standing rule for this project, in force from Phase 4 onward:
 
 ---
 
+## Phase 10 — Verification Execution Adapter (GitHub Actions) ✅ Complete
+
+**Goal:** Render's free web service doesn't expose `/var/run/docker.sock`, so the Phase 4 verification sandbox can't run there unchanged. Add a second execution path — dispatch a GitHub Actions workflow instead of a local Docker container — without touching Phase 4's actual safety semantics (PASS/FAIL/SKIPPED, required-check gating, the vulnerability re-scan, or the Phase 5 delivery-integrity gate).
+
+**Delivered:**
+- **`VerificationExecutor` abstraction** (`backend/app/services/verification/executors.py`, new): `DockerVerificationExecutor` (the original Phase 4 loop, moved here unchanged) and `GitHubActionsVerificationExecutor` (pushes the patch branch, dispatches `workflow_dispatch`, returns immediately — the run stays `"running"` until a callback finalizes it). Selected via explicit `VERIFICATION_EXECUTOR` config (`docker` default / `github_actions`) — deliberately independent of `ENVIRONMENT`, so flipping to production doesn't silently also change how verification executes.
+- **Shared finalization, extracted once**: `VerificationService._finalize_after_checks()` — the vulnerability re-scan and the VERIFIED/VERIFICATION_FAILED verdict computation, called identically whether checks completed synchronously (Docker) or arrived via callback (GitHub Actions). This is the actual answer to "the rest of TALOS must not care where verification executes" — one function, two callers.
+- **`.github/workflows/talos-verification.yml`** (new): lives in TALOS's own repo, not the repository being verified. Checks out the *target* repo/branch via a dedicated stored secret, runs exactly the checks TALOS's own `VerificationPlanBuilder` already selected (passed as a JSON `workflow_dispatch` input — the workflow never decides what to run), replicates the required-check short-circuit semantics in bash, and POSTs results back.
+- **`POST /api/internal/verification/{id}/callback`** (`backend/app/api/internal/verification_callback.py`, new): authenticated by a dedicated `TALOS_WORKER_SECRET` (constant-time compared, same pattern as the Phase 7 webhook signature check) — completely separate from user JWTs and never derivable from anything handed to repository code. Idempotent: a run can only be finalized once, verified live (see below).
+- **Deferred auto-chain**: a dispatched run that comes back `verified` for an `AUTO_EXECUTE` job triggers `DeliveryService.deliver()` from the callback itself — the same continuation `patch_service._auto_chain()` does for the synchronous Docker path.
+- **`VerificationRun.executor` / `.external_run_url`** columns (migrated) — which path actually ran, and the real GitHub Actions run URL when applicable. Exposed in the API response; real evidence, not a UI claim.
+
+**Verified live, not just written:**
+- **The refactored Docker path end-to-end, for real**: triggered a genuine `prepare-fix` against a live open issue on the connected demo repo, through Ollama analysis, the Decision Engine (`AUTO_EXECUTE`), the refactored `DockerVerificationExecutor` (real sandboxed `INSTALL`/`BUILD`/`LINT`/`TEST`/`SECURITY_AUDIT` checks — `SECURITY_AUDIT` honestly `FAILED`, correctly non-blocking since it's optional), the shared finalization (`VULNERABILITY_RESCAN` `PASSED`, run `verified`), the auto-chain, and real delivery — a real pull request, [`talos-demo-vulnerable#1`](https://github.com/safwanshk11/talos-demo-vulnerable/pull/1). Nothing about the local path regressed.
+- **`VERIFICATION_EXECUTOR=github_actions` config validation**: an isolated container with the executor set but the three required variables missing failed fast with the exact expected error; the same container with all three set passed cleanly.
+- **The callback endpoint's auth and idempotency**: a wrong `X-Talos-Worker-Secret` → `401`; a nonexistent run id → `404`; a *correct* secret against an already-finalized run → `{"status": "ignored", ...}` rather than re-finalizing or re-triggering delivery — all against an isolated container sharing the real database, no state corrupted.
+- **`.github/workflows/talos-verification.yml`** YAML syntax validated (Ruby's `Psych` parser, since no local Python/Node YAML lib was available) — not executed on a real runner this session, since that requires the user to add two secrets (`TALOS_GH_ACTIONS_TOKEN`, `TALOS_WORKER_SECRET`) to their real GitHub repository settings, which wasn't asked for.
+
+**Key files:** `backend/app/services/verification/executors.py` (new), `backend/app/services/verification/verification_service.py` (orchestration refactored; identical Docker behavior, new executor dispatch), `backend/app/api/internal/verification_callback.py` (new), `backend/app/api/internal/__init__.py` (new), `backend/app/services/github_service.py` (`dispatch_workflow`), `backend/app/models/future.py` (`VerificationRun.executor`/`external_run_url`), `backend/app/schemas/verification.py` (callback schemas), `backend/app/core/config.py` (5 new settings + validation), `backend/app/main.py` (router registration, migration), `.github/workflows/talos-verification.yml` (new).
+
+**Remaining limitations:**
+- The GitHub Actions path has not been exercised against a real GitHub-hosted runner — only its config validation, dispatch-time error paths, and the callback endpoint's auth/idempotency were live-tested. Exercising it fully requires the user to add the two repo secrets and actually deploy with `VERIFICATION_EXECUTOR=github_actions`.
+- `dispatch_workflow`'s token reuses the connected user's own GitHub token (already has `repo` scope); it must also have write access to `GITHUB_ACTIONS_REPO` (TALOS's own repository) for `workflow_dispatch` to succeed — true by construction in this single-tenant project, but worth knowing if TALOS's repo and a user's repos are ever owned by different accounts.
+- No automatic executor fallback (e.g. retry via Docker if GitHub Actions dispatch fails) — an infrastructure failure on either path fails the run honestly rather than silently trying the other.
+
+---
+
 ## Cross-Phase Technical Debt (tracked, not yet addressed)
 
 - **No formal migration tooling.** Alembic is an installed dependency but unused; schema changes are applied via `ADD COLUMN IF NOT EXISTS` statements in `main.py`'s startup lifespan. Safe so far because every affected table has been empty at the time of change, but this will not scale past a certain point. Revisited and deliberately not addressed in Phase 8 or 9 (scope freeze both times).

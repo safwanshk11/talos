@@ -9,6 +9,7 @@ from app.core.config import settings, validate_startup_config
 from app.db.session import engine
 from app.db.base import Base
 from app.api.v1 import health, auth, repositories, webhooks
+from app.api.internal import verification_callback
 from app.services.monitoring_service import SchedulerService
 
 logging.basicConfig(level=settings.LOG_LEVEL)
@@ -189,6 +190,16 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE repository_scans ADD COLUMN IF NOT EXISTS trigger VARCHAR DEFAULT 'manual'"
         ))
 
+        # Phase 10: Verification Execution Adapter — which VerificationExecutor
+        # actually ran a given run (docker/github_actions), and the GitHub
+        # Actions run's own URL when applicable.
+        await conn.execute(text(
+            "ALTER TABLE verification_runs ADD COLUMN IF NOT EXISTS executor VARCHAR DEFAULT 'docker'"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE verification_runs ADD COLUMN IF NOT EXISTS external_run_url VARCHAR"
+        ))
+
         # Phase 7 section 43 (Durable Work): a scan/job left mid-flight by a
         # process restart (crash, redeploy) would otherwise sit in a "running"/
         # "active" state forever — and Phase 7's own concurrency locks
@@ -248,6 +259,7 @@ app.include_router(health.router, prefix="/api/v1", tags=["Health"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth & GitHub"])
 app.include_router(repositories.router, prefix="/api/v1/repositories", tags=["Repositories"])
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"])
+app.include_router(verification_callback.router, prefix="/api/internal", tags=["Internal — Verification Worker Callback"])
 
 
 @app.get("/")

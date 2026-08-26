@@ -391,13 +391,17 @@ class PatchService:
 
         try:
             await PatchService._log(db, job.id, repo.id, "VERIFY", "Autonomous execution: proceeding directly to verification (policy permits AUTO_EXECUTE).")
-            await VerificationService.run_verification(db, repo.user_id, repo.id, job.id)
+            await VerificationService.run_verification(db, repo.user_id, repo.id, job.id, token)
         except Exception as exc:
             logger.warning(f"Auto-chain verification did not complete for job {job.id}: {exc}")
             return
 
         await db.refresh(job)
         if job.status != "verified":
+            # Also correctly reached when VERIFICATION_EXECUTOR=github_actions
+            # dispatched the run — it stays "verifying" until the callback
+            # endpoint finalizes it, which resumes this exact same auto-chain
+            # (see api/internal/verification_callback.py) rather than losing it.
             return
 
         try:

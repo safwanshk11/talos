@@ -63,6 +63,28 @@ class Settings(BaseSettings):
     # reaper reclaims it (see monitoring_service.WorkspaceReaperService).
     WORKSPACE_RETENTION_HOURS: int = 24
 
+    # Verification Execution Adapter (Phase 10). "docker" (default) runs the
+    # existing local docker-outside-of-docker sandbox. "github_actions" is for
+    # deployments (e.g. Render) with no Docker socket available — it dispatches
+    # a workflow_dispatch run on GITHUB_ACTIONS_REPO and waits for a signed
+    # callback. Explicit and independent of ENVIRONMENT on purpose: flipping
+    # ENVIRONMENT=production shouldn't silently also change how verification
+    # executes — a deployment WITH Docker access should be free to keep using
+    # the local sandbox in production.
+    VERIFICATION_EXECUTOR: str = "docker"
+    # "<owner>/<repo>" hosting .github/workflows/talos-verification.yml —
+    # normally TALOS's own repository, not the repository being verified.
+    GITHUB_ACTIONS_REPO: str = ""
+    GITHUB_ACTIONS_WORKFLOW_FILE: str = "talos-verification.yml"
+    GITHUB_ACTIONS_REF: str = "main"
+    # This backend's own publicly reachable base URL, so the dispatched
+    # workflow knows where to POST its callback. Not a secret.
+    TALOS_API_URL: str = ""
+    # Shared secret authenticating the callback FROM the GitHub Actions runner
+    # TO this backend — a completely different credential from SECRET_KEY
+    # (which signs user sessions) and never handed to repository code.
+    TALOS_WORKER_SECRET: str = ""
+
     @property
     def sync_database_url(self) -> str:
         """Returns synchronous database URL for Alembic migrations if needed."""
@@ -119,6 +141,19 @@ def validate_startup_config() -> None:
 
     if is_production and any("localhost" in origin for origin in settings.BACKEND_CORS_ORIGINS):
         warnings.append("BACKEND_CORS_ORIGINS still includes localhost origins in a production environment.")
+
+    if settings.VERIFICATION_EXECUTOR not in ("docker", "github_actions"):
+        errors.append(f"VERIFICATION_EXECUTOR={settings.VERIFICATION_EXECUTOR!r} is not supported (expected 'docker' or 'github_actions').")
+    elif settings.VERIFICATION_EXECUTOR == "github_actions":
+        missing = [
+            name for name, val in [
+                ("GITHUB_ACTIONS_REPO", settings.GITHUB_ACTIONS_REPO),
+                ("TALOS_API_URL", settings.TALOS_API_URL),
+                ("TALOS_WORKER_SECRET", settings.TALOS_WORKER_SECRET),
+            ] if not val
+        ]
+        if missing:
+            errors.append(f"VERIFICATION_EXECUTOR=github_actions requires {', '.join(missing)} to be set.")
 
     for w in warnings:
         logger.warning(f"[config] {w}")

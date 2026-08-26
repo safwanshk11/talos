@@ -461,11 +461,20 @@ async def verify_job(
     db: AsyncSession = Depends(get_db)
 ):
     """Run the real Phase 4 verification pipeline against a PATCH_READY job:
-    isolated sandbox, deterministic checks (install/build/typecheck/lint/test/
-    security audit), and a re-scan confirming the original vulnerability is
-    actually gone. Never merges or pushes anywhere — only decides
+    isolated sandbox (or, if VERIFICATION_EXECUTOR=github_actions, a dispatched
+    GitHub Actions run), deterministic checks (install/build/typecheck/lint/
+    test/security audit), and a re-scan confirming the original vulnerability
+    is actually gone. Never merges or pushes anywhere — only decides
     VERIFIED vs VERIFICATION_FAILED."""
-    run = await VerificationService.run_verification(db, current_user.id, repository_id, job_id)
+    # Optional here — the default Docker executor never uses it. Only
+    # VERIFICATION_EXECUTOR=github_actions needs it, to push the patch branch
+    # and dispatch the workflow; that path raises its own clear error if the
+    # token is missing rather than blocking local verification upfront.
+    try:
+        token = await RepositoryService.get_user_github_token(db, current_user.id)
+    except HTTPException:
+        token = ""
+    run = await VerificationService.run_verification(db, current_user.id, repository_id, job_id, token)
     return await VerificationService.to_response_dict(db, run)
 
 

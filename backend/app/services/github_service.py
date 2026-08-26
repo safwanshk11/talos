@@ -260,3 +260,31 @@ class GitHubService:
                 return resp.json()
             except httpx.RequestError as exc:
                 raise HTTPException(status_code=503, detail=f"Network error reading GitHub pull request: {exc}")
+
+    @staticmethod
+    async def dispatch_workflow(
+        token: str, owner: str, repo: str, workflow_file: str, ref: str, inputs: Dict[str, Any]
+    ) -> None:
+        """Triggers a `workflow_dispatch` run of a workflow living in TALOS's
+        own repository (owner/repo here — NOT the repository being verified;
+        that identity travels inside `inputs` instead). `inputs` must never
+        contain a live credential: GitHub stores and displays workflow_dispatch
+        inputs in the run's event payload, visible to anyone with read access
+        to the Actions tab of a public repo."""
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "TALOS-Bot",
+        }
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.post(
+                    f"{GITHUB_API_BASE}/repos/{owner}/{repo}/actions/workflows/{workflow_file}/dispatches",
+                    headers=headers,
+                    json={"ref": ref, "inputs": inputs},
+                    timeout=15.0,
+                )
+                if resp.status_code != 204:
+                    raise HTTPException(status_code=502, detail=f"Failed to dispatch GitHub Actions workflow: {resp.text}")
+            except httpx.RequestError as exc:
+                raise HTTPException(status_code=503, detail=f"Network error dispatching GitHub Actions workflow: {exc}")

@@ -127,6 +127,13 @@ class VerificationRun(Base):
     status = Column(String, default="pending")
     sandbox_id = Column(String, nullable=True)
 
+    # Phase 10: which VerificationExecutor actually ran this — "docker"
+    # (default, local sandbox) or "github_actions" (Render/no-Docker-socket
+    # deployments). external_run_url is the GitHub Actions run's own URL,
+    # kept for the same reason sandbox_id exists: real evidence, not a claim.
+    executor = Column(String, default="docker")
+    external_run_url = Column(String, nullable=True)
+
     started_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime(timezone=True), nullable=True)
 

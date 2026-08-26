@@ -18,17 +18,15 @@ from app.models.future import (
     VerificationCheck,
     ActionLog,
 )
+from app.models.repository import Repository
 from app.services.scanner_service import ScannerService
-from app.services.verification.plan_builder import VerificationPlanBuilder
+from app.services.verification.plan_builder import VerificationPlanBuilder, REQUIRED_CHECKS
 from app.services.verification.sandbox_service import SandboxService, SandboxError
+from app.services.verification.executors import (
+    VerificationContext, ExecutionOutcome, DockerVerificationExecutor, get_verification_executor,
+)
 
 logger = logging.getLogger("talos.verification")
-
-TIMEOUTS = {
-    "INSTALL": settings.VERIFICATION_TIMEOUT_INSTALL,
-    "BUILD": settings.VERIFICATION_TIMEOUT_BUILD,
-    "TEST": settings.VERIFICATION_TIMEOUT_TEST,
-}
 
 
 class VerificationService:
@@ -53,7 +51,7 @@ class VerificationService:
     # ------------------------------------------------------------------ entrypoint
 
     @staticmethod
-    async def run_verification(db: AsyncSession, user_id: int, repository_id: int, job_id: int) -> VerificationRun:
+    async def run_verification(db: AsyncSession, user_id: int, repository_id: int, job_id: int, token: str = "") -> VerificationRun:
         job = await VerificationService._get_job(db, repository_id, job_id)
         issue = await VerificationService._get_issue(db, job.issue_id)
         attempt = await VerificationService._get_latest_ready_attempt(db, job.id)
@@ -75,6 +73,7 @@ class VerificationService:
             maintenance_job_id=job.id,
             patch_attempt_id=attempt.id,
             status="running",
+            executor=settings.VERIFICATION_EXECUTOR,
             started_at=datetime.now(timezone.utc),
         )
         db.add(run)
@@ -89,127 +88,68 @@ class VerificationService:
         await VerificationService._log(db, job.id, repository_id, "VERIFY", f"Verification run #{run.id} started.")
 
         try:
-            if not SandboxService.check_docker_available():
-                raise SandboxError(
-                    "Docker sandbox is not available to the backend. Verification requires the host's "
-                    "Docker socket to be mounted (see docker-compose.yml)."
+            executor = get_verification_executor()
+
+            if isinstance(executor, DockerVerificationExecutor):
+                if not SandboxService.check_docker_available():
+                    raise SandboxError(
+                        "Docker sandbox is not available to the backend. Verification requires the host's "
+                        "Docker socket to be mounted (see docker-compose.yml), or VERIFICATION_EXECUTOR=github_actions "
+                        "on a deployment without one."
+                    )
+                sandbox_id = f"run{run.id}-{os.urandom(4).hex()}"
+                run.sandbox_id = sandbox_id
+                await db.commit()
+                await VerificationService._log(
+                    db, job.id, repository_id, "VERIFY",
+                    f"Isolated sandbox '{sandbox_id}' prepared: no TALOS secrets, isolated network, resource-limited.",
                 )
 
-            sandbox_id = f"run{run.id}-{os.urandom(4).hex()}"
-            run.sandbox_id = sandbox_id
-            await db.commit()
-            await VerificationService._log(
-                db, job.id, repository_id, "VERIFY",
-                f"Isolated sandbox '{sandbox_id}' prepared: no TALOS secrets, isolated network, resource-limited.",
-            )
-
+            repo = await VerificationService._get_repository(db, repository_id)
             workspace_subdir = os.path.basename(attempt.workspace_path.rstrip("/"))
             ecosystem = VerificationService._detect_ecosystem(attempt.workspace_path)
-            plan = VerificationPlanBuilder.build(attempt.workspace_path, ecosystem)
+            full_plan = VerificationPlanBuilder.build(attempt.workspace_path, ecosystem)
             await VerificationService._log(
                 db, job.id, repository_id, "VERIFY",
-                f"Verification plan built for {ecosystem} project: {len(plan)} checks.",
+                f"Verification plan built for {ecosystem} project: {len(full_plan)} checks "
+                f"(executor: {settings.VERIFICATION_EXECUTOR}).",
             )
 
-            required_failed = False
-
-            for order_index, planned in enumerate(plan, start=1):
-                if required_failed:
-                    db.add(VerificationCheck(
-                        verification_run_id=run.id, type=planned.type, command=planned.command,
-                        status="SKIPPED", order_index=order_index,
-                        check_metadata={"reason": "An earlier required check failed; remaining checks skipped."},
-                    ))
-                    await db.commit()
+            # The vulnerability re-scan always runs against the backend's own
+            # OSV client against the untouched local workspace — regardless of
+            # executor, it's not something either sandbox "runs" as a command.
+            runnable = []
+            order_index = 0
+            for planned in full_plan:
+                if planned.type == "VULNERABILITY_RESCAN":
                     continue
-
+                order_index += 1
                 if planned.command is None:
                     db.add(VerificationCheck(
                         verification_run_id=run.id, type=planned.type, command=None,
                         status="SKIPPED", order_index=order_index,
                         check_metadata={"reason": planned.skip_reason},
                     ))
-                    await db.commit()
                     await VerificationService._log(db, job.id, repository_id, "VERIFY", f"{planned.type} skipped: {planned.skip_reason}")
                     continue
-
-                if planned.type == "VULNERABILITY_RESCAN":
-                    status, metadata = await VerificationService._rescan_vulnerability(attempt, issue, ecosystem)
-                    db.add(VerificationCheck(
-                        verification_run_id=run.id, type="VULNERABILITY_RESCAN", command="OSV re-query",
-                        status=status, order_index=order_index, check_metadata=metadata,
-                        started_at=datetime.now(timezone.utc), completed_at=datetime.now(timezone.utc),
-                    ))
-                    await db.commit()
-                    await VerificationService._log(
-                        db, job.id, repository_id, "VERIFY",
-                        "Vulnerability re-scan: advisory removed." if status == "PASSED"
-                        else "Vulnerability re-scan: advisory still present." if status == "FAILED"
-                        else f"Vulnerability re-scan skipped: {metadata.get('reason')}",
-                    )
-                    if status in ("FAILED",) and planned.required:
-                        required_failed = True
-                    continue
-
-                await VerificationService._log(db, job.id, repository_id, "VERIFY", f"{planned.type} started: {planned.command}")
-                started_at = datetime.now(timezone.utc)
-                timeout = TIMEOUTS.get(planned.type, settings.VERIFICATION_TIMEOUT_DEFAULT)
-                image = (
-                    settings.VERIFICATION_SANDBOX_IMAGE_NPM if ecosystem == "npm"
-                    else settings.VERIFICATION_SANDBOX_IMAGE_PIP
-                )
-
-                result = SandboxService.run(
-                    image=image,
-                    workspace_subdir=workspace_subdir,
-                    command=planned.command,
-                    timeout=timeout,
-                    memory=settings.VERIFICATION_MEMORY_LIMIT,
-                    cpus=settings.VERIFICATION_CPU_LIMIT,
-                    run_label=f"{run.id}-{planned.type.lower()}",
-                )
-
-                status = "TIMED_OUT" if result.timed_out else ("PASSED" if result.exit_code == 0 else "FAILED")
-                check_metadata = None
-                if planned.type == "SECURITY_AUDIT":
-                    # Parse the FULL output before it gets tail-truncated below —
-                    # `npm audit --json` output can exceed the excerpt limit, and
-                    # truncating first would sever the JSON's opening structure.
-                    status, check_metadata = VerificationService._interpret_npm_audit(result)
-
-                stdout_excerpt, stderr_excerpt = result.excerpt(SandboxService.OUTPUT_LIMIT)
-                db.add(VerificationCheck(
-                    verification_run_id=run.id, type=planned.type, command=planned.command,
-                    status=status, exit_code=result.exit_code, duration_ms=result.duration_ms,
-                    stdout_excerpt=stdout_excerpt, stderr_excerpt=stderr_excerpt,
-                    check_metadata=check_metadata, order_index=order_index,
-                    started_at=started_at, completed_at=datetime.now(timezone.utc),
-                ))
-                await db.commit()
-
-                await VerificationService._log(
-                    db, job.id, repository_id, "VERIFY",
-                    f"{planned.type} {status.lower()} ({result.duration_ms}ms).",
-                )
-
-                if status in ("FAILED", "TIMED_OUT") and planned.required:
-                    required_failed = True
-
-            overall_verified = not required_failed
-            run.status = "verified" if overall_verified else "verification_failed"
-            run.completed_at = datetime.now(timezone.utc)
-            job.status = run.status
-            job.completed_at = datetime.now(timezone.utc)
-            if issue:
-                issue.status = "VERIFIED" if overall_verified else "VERIFICATION_FAILED"
+                runnable.append(planned)
             await db.commit()
 
-            await VerificationService._log(
-                db, job.id, repository_id, "VERIFY",
-                "Verification PASSED — patch marked VERIFIED." if overall_verified
-                else "Verification FAILED — patch marked VERIFICATION_FAILED.",
+            ctx = VerificationContext(
+                db=db, run=run, job=job, issue=issue, attempt=attempt, repo=repo,
+                workspace_path=attempt.workspace_path, workspace_subdir=workspace_subdir,
+                ecosystem=ecosystem, plan=runnable, token=token,
             )
-            return run
+            outcome = await executor.run_plan(ctx)
+
+            if outcome == ExecutionOutcome.DISPATCHED:
+                await VerificationService._log(
+                    db, job.id, repository_id, "VERIFY",
+                    "Verification dispatched to GitHub Actions; awaiting callback from the runner.",
+                )
+                return run
+
+            return await VerificationService._finalize_after_checks(db, run, job, issue, repo, attempt, ecosystem)
 
         except Exception as exc:
             logger.exception(f"Verification infrastructure failure for run {run.id}")
@@ -224,6 +164,62 @@ class VerificationService:
                 db, job.id, repository_id, "ESCALATE", f"Verification infrastructure failure: {exc}", level="ERROR",
             )
             raise HTTPException(status_code=500, detail=f"Verification infrastructure failure: {exc}")
+
+    # ------------------------------------------------------------------ shared finalization (executor-independent)
+
+    @staticmethod
+    async def _finalize_after_checks(
+        db: AsyncSession, run: VerificationRun, job: MaintenanceJob, issue: Optional[MaintenanceIssue],
+        repo: Repository, attempt: PatchAttempt, ecosystem: str,
+    ) -> VerificationRun:
+        """Shared by both executors: performs the vulnerability re-scan (unless
+        an earlier required check already failed) and computes the final
+        VERIFIED/VERIFICATION_FAILED verdict from persisted VerificationCheck
+        rows — the rest of TALOS never needs to know which executor ran."""
+        stmt = select(VerificationCheck).where(VerificationCheck.verification_run_id == run.id)
+        existing_checks = (await db.execute(stmt)).scalars().all()
+        required_failed = any(c.type in REQUIRED_CHECKS and c.status in ("FAILED", "TIMED_OUT") for c in existing_checks)
+        next_order = max((c.order_index for c in existing_checks), default=0) + 1
+
+        if required_failed:
+            db.add(VerificationCheck(
+                verification_run_id=run.id, type="VULNERABILITY_RESCAN", command=None,
+                status="SKIPPED", order_index=next_order,
+                check_metadata={"reason": "An earlier required check failed; remaining checks skipped."},
+            ))
+            await VerificationService._log(db, job.id, repo.id, "VERIFY", "Vulnerability re-scan skipped: an earlier required check already failed.")
+        else:
+            status, metadata = await VerificationService._rescan_vulnerability(attempt, issue, ecosystem)
+            db.add(VerificationCheck(
+                verification_run_id=run.id, type="VULNERABILITY_RESCAN", command="OSV re-query",
+                status=status, order_index=next_order, check_metadata=metadata,
+                started_at=datetime.now(timezone.utc), completed_at=datetime.now(timezone.utc),
+            ))
+            await VerificationService._log(
+                db, job.id, repo.id, "VERIFY",
+                "Vulnerability re-scan: advisory removed." if status == "PASSED"
+                else "Vulnerability re-scan: advisory still present." if status == "FAILED"
+                else f"Vulnerability re-scan skipped: {metadata.get('reason')}",
+            )
+            if status == "FAILED":
+                required_failed = True
+        await db.commit()
+
+        overall_verified = not required_failed
+        run.status = "verified" if overall_verified else "verification_failed"
+        run.completed_at = datetime.now(timezone.utc)
+        job.status = run.status
+        job.completed_at = datetime.now(timezone.utc)
+        if issue:
+            issue.status = "VERIFIED" if overall_verified else "VERIFICATION_FAILED"
+        await db.commit()
+
+        await VerificationService._log(
+            db, job.id, repo.id, "VERIFY",
+            "Verification PASSED — patch marked VERIFIED." if overall_verified
+            else "Verification FAILED — patch marked VERIFICATION_FAILED.",
+        )
+        return run
 
     # ------------------------------------------------------------------ vulnerability re-scan
 
@@ -346,6 +342,15 @@ class VerificationService:
         result = await db.execute(stmt)
         return result.scalars().first()
 
+    @staticmethod
+    async def _get_repository(db: AsyncSession, repository_id: int) -> Repository:
+        stmt = select(Repository).where(Repository.id == repository_id)
+        result = await db.execute(stmt)
+        repo = result.scalars().first()
+        if not repo:
+            raise HTTPException(status_code=404, detail="Repository not found.")
+        return repo
+
     # ------------------------------------------------------------------ response assembly
 
     @staticmethod
@@ -363,6 +368,8 @@ class VerificationService:
             "patch_attempt_id": run.patch_attempt_id,
             "status": run.status,
             "sandbox_id": run.sandbox_id,
+            "executor": run.executor,
+            "external_run_url": run.external_run_url,
             "started_at": run.started_at,
             "completed_at": run.completed_at,
             "checks": checks,

@@ -1,0 +1,166 @@
+name: TALOS Verification
+
+# Dispatched by the TALOS backend (GitHubActionsVerificationExecutor) when
+# VERIFICATION_EXECUTOR=github_actions — used on deployments with no Docker
+# socket available (e.g. Render's free tier), as a drop-in replacement for
+# the local docker-outside-of-docker sandbox. This workflow lives in TALOS's
+# own repository; it checks out the TARGET repository being verified (a
+# different repo) via `target_repo`/`target_ref`.
+#
+# Inputs never carry a live credential — workflow_dispatch inputs are visible
+# in this repo's Actions run history to anyone with read access. Checkout of
+# the target repo uses a dedicated stored secret (TALOS_GH_ACTIONS_TOKEN),
+# and the callback is authenticated with a separate stored secret
+# (TALOS_WORKER_SECRET) — neither is ever an input.
+
+on:
+  workflow_dispatch:
+    inputs:
+      verification_run_id:
+        description: "TALOS VerificationRun.id this run reports back to"
+        required: true
+        type: string
+      callback_url:
+        description: "TALOS backend URL to POST results to (not a secret)"
+        required: true
+        type: string
+      target_repo:
+        description: "owner/repo being verified (NOT this repository)"
+        required: true
+        type: string
+      target_ref:
+        description: "Branch to check out — the TALOS patch branch (talos/fix-*)"
+        required: true
+        type: string
+      runtime_image:
+        description: "Ecosystem hint from TALOS (node:20-slim or python:3.11-slim)"
+        required: true
+        type: string
+      plan:
+        description: >
+          JSON array of checks TALOS already decided to run:
+          [{"type": "INSTALL", "command": "npm ci", "required": true}, ...].
+          This workflow executes exactly these commands — it does not decide
+          what to run, and accepts no other shell input.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.target_repo }}
+          ref: ${{ inputs.target_ref }}
+          token: ${{ secrets.TALOS_GH_ACTIONS_TOKEN }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        if: contains(inputs.runtime_image, 'node')
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Python
+        if: contains(inputs.runtime_image, 'python')
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run TALOS-selected checks
+        id: run_checks
+        shell: bash
+        env:
+          PLAN_JSON: ${{ inputs.plan }}
+        run: |
+          set -uo pipefail
+          echo "$PLAN_JSON" > /tmp/plan.json
+
+          results="[]"
+          required_failed=false
+
+          count=$(jq 'length' /tmp/plan.json)
+          for i in $(seq 0 $((count - 1))); do
+            type=$(jq -r ".[$i].type" /tmp/plan.json)
+            command=$(jq -r ".[$i].command" /tmp/plan.json)
+            required=$(jq -r ".[$i].required" /tmp/plan.json)
+
+            if [ "$required_failed" = "true" ]; then
+              status="SKIPPED"; exit_code="null"; duration_ms=0
+              stdout_excerpt=""; stderr_excerpt="An earlier required check failed; remaining checks skipped."
+            else
+              start_ms=$(date +%s%3N)
+              set +e
+              # Bounded, non-interactive: a fixed 5-minute ceiling per check —
+              # this workflow only ever runs commands TALOS itself selected
+              # from a repository-specific, fixed template (plan_builder.py),
+              # never arbitrary text from the dispatch input.
+              output=$(timeout 300 bash -c "$command" 2>&1)
+              code=$?
+              set -e
+              end_ms=$(date +%s%3N)
+              duration_ms=$((end_ms - start_ms))
+              exit_code=$code
+
+              if [ "$code" -eq 124 ]; then
+                status="TIMED_OUT"
+              elif [ "$code" -eq 0 ]; then
+                status="PASSED"
+              else
+                status="FAILED"
+              fi
+
+              # Tail-truncate, matching the local sandbox's excerpt behavior —
+              # the useful failure detail is almost always at the end.
+              stdout_excerpt=$(echo "$output" | tail -c 4000)
+              stderr_excerpt=""
+
+              if [ "$status" != "PASSED" ] && [ "$required" = "true" ]; then
+                required_failed=true
+              fi
+            fi
+
+            check_json=$(jq -n \
+              --arg type "$type" --arg command "$command" --arg status "$status" \
+              --argjson exit_code "${exit_code:-null}" --argjson duration_ms "$duration_ms" \
+              --arg stdout "$stdout_excerpt" --arg stderr "$stderr_excerpt" \
+              '{type:$type, command:$command, status:$status, exit_code:$exit_code, duration_ms:$duration_ms, stdout_excerpt:$stdout, stderr_excerpt:$stderr}')
+            results=$(echo "$results" | jq --argjson c "$check_json" '. + [$c]')
+          done
+
+          echo "$results" > /tmp/results.json
+          echo "Collected $(jq 'length' /tmp/results.json) check result(s)."
+
+      - name: Report results to TALOS
+        if: always()
+        shell: bash
+        env:
+          TALOS_WORKER_SECRET: ${{ secrets.TALOS_WORKER_SECRET }}
+          CALLBACK_URL: ${{ inputs.callback_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          if [ ! -f /tmp/results.json ]; then
+            echo "[]" > /tmp/results.json
+          fi
+          payload=$(jq -n --argjson checks "$(cat /tmp/results.json)" --arg url "$RUN_URL" \
+            '{checks: $checks, external_run_url: $url}')
+
+          http_code=$(curl -s -o /tmp/callback_response.txt -w "%{http_code}" \
+            -X POST "$CALLBACK_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Talos-Worker-Secret: $TALOS_WORKER_SECRET" \
+            -d "$payload")
+
+          echo "Callback response ($http_code):"
+          cat /tmp/callback_response.txt
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "::error::TALOS callback failed with HTTP $http_code"
+            exit 1
+          fi
