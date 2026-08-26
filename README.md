@@ -6,7 +6,7 @@
 
 **Autonomous maintenance. Human control.**
 
-[Live Demo](<LIVE_DEMO_URL>) · [Demo Video](<DEMO_VIDEO_URL>) · [Architecture](#architecture) · [PHASES.md](PHASES.md)
+[Live Demo](https://talos-pi.vercel.app/) · [Demo Video](<DEMO_VIDEO_URL>) · [Architecture](#architecture) · [PHASES.md](PHASES.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB.svg)](backend/requirements.txt)
@@ -381,7 +381,7 @@ Covers the Decision Engine (all five outcomes, precedence ordering, protected-pa
 
 ## Demo
 
-- **Live Application:** `<LIVE_DEMO_URL>`
+- **Live Application:** [https://talos-pi.vercel.app/](https://talos-pi.vercel.app/)
 - **Demo Video:** `<DEMO_VIDEO_URL>`
 - **Demo Repository:** [`safwanshk11/talos-demo-vulnerable-app`](https://github.com/safwanshk11/talos-demo-vulnerable-app) — a small, controlled repository with a real, currently-open vulnerability, kept intentionally separate from the TALOS source repository itself. It already has real history: three pull requests TALOS opened and a human merged.
 
